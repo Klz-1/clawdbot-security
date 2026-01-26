@@ -159,6 +159,12 @@ async function runComprehensiveAudit(deep: boolean = false): Promise<AuditResult
   checks.push(...hooksResult.checks);
   issues.push(...hooksResult.issues);
 
+  // 10.5 Prompt Injection Protection (CVE-2025-PROMPT-INJECTION / PR #1827)
+  console.log(chalk.dim('  • Checking prompt injection protection...'));
+  const promptInjectionResult = await checkPromptInjectionProtection();
+  checks.push(...promptInjectionResult.checks);
+  issues.push(...promptInjectionResult.issues);
+
   // === MODEL SECURITY ===
 
   console.log(chalk.bold.cyan('\nModel Security'));
@@ -761,6 +767,155 @@ async function checkHooksSecurity(config: any): Promise<{ checks: AuditCheck[]; 
       name: 'Hooks installed',
       passed: true,
       message: 'Hooks directory not found',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check for Prompt Injection Protection (CVE-2025-PROMPT-INJECTION)
+ *
+ * This vulnerability (PR #1827) allowed malicious emails sent to Gmail hooks to inject
+ * commands directly into LLM prompts, potentially executing arbitrary instructions.
+ *
+ * The fix introduces external content sanitization that wraps untrusted data with
+ * XML-style delimiters and security warnings to prevent prompt injection attacks.
+ *
+ * @see https://github.com/clawdbot/clawdbot/pull/1827
+ */
+async function checkPromptInjectionProtection(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    // Check if Clawdbot has external content sanitization module
+    // This was introduced in PR #1827 to prevent prompt injection via email hooks
+    const npmRoot = (await execAsync('npm root -g')).stdout.trim();
+    const clawdbotPath = join(npmRoot, 'clawdbot');
+
+    // Check for the security module that handles external content
+    const securityModuleExists = await access(join(clawdbotPath, 'dist', 'security'))
+      .then(() => true)
+      .catch(() => false);
+
+    if (!securityModuleExists) {
+      checks.push({
+        name: 'Prompt injection protection',
+        passed: false,
+        message: 'Security module not found (vulnerable)',
+      });
+      issues.push({
+        code: 'PROMPT_INJECTION_VULNERABLE',
+        severity: 'critical',
+        message: 'Clawdbot installation vulnerable to prompt injection attacks (CVE-2025-PROMPT-INJECTION)',
+        fix: 'Update Clawdbot to version 2026.1.24-3 or later: npm update -g clawdbot',
+      });
+      return { checks, issues };
+    }
+
+    // Check if Gmail hooks are enabled (primary attack vector)
+    const hooksDir = join(CLAWDBOT_DIR, 'hooks');
+    let gmailHookFound = false;
+
+    try {
+      const hooks = await readdir(hooksDir);
+      for (const hookName of hooks) {
+        const hookPath = join(hooksDir, hookName);
+        const hookMdPath = join(hookPath, 'HOOK.md');
+
+        try {
+          const hookMd = await readFile(hookMdPath, 'utf-8');
+          // Check if hook handles email/Gmail/external content
+          if (hookMd.toLowerCase().includes('gmail') ||
+              hookMd.toLowerCase().includes('email') ||
+              hookMd.toLowerCase().includes('cron')) {
+            gmailHookFound = true;
+
+            // Check if hook code uses proper sanitization
+            const hookFiles = await readdir(hookPath);
+            let sanitizationFound = false;
+
+            for (const file of hookFiles) {
+              if (file.endsWith('.js') || file.endsWith('.ts')) {
+                const content = await readFile(join(hookPath, file), 'utf-8');
+
+                // Look for sanitization patterns
+                if (content.includes('sanitize') ||
+                    content.includes('escapeXml') ||
+                    content.includes('EXTERNAL_CONTENT')) {
+                  sanitizationFound = true;
+                  break;
+                }
+              }
+            }
+
+            if (!sanitizationFound) {
+              issues.push({
+                code: 'HOOK_NO_SANITIZATION',
+                severity: 'high',
+                message: `Hook "${hookName}" handles external content but may not sanitize it`,
+                fix: 'Update hook to use proper external content sanitization',
+              });
+            }
+          }
+        } catch {
+          // Can't read hook metadata
+        }
+      }
+    } catch {
+      // No hooks directory
+    }
+
+    if (gmailHookFound) {
+      checks.push({
+        name: 'Prompt injection protection',
+        passed: true,
+        message: 'External content hooks detected - ensure sanitization is enabled',
+      });
+    } else {
+      checks.push({
+        name: 'Prompt injection protection',
+        passed: true,
+        message: 'No external content hooks detected (low risk)',
+      });
+    }
+
+    // Additional check: Verify Clawdbot version
+    const version = (await execAsync('clawdbot --version')).stdout.trim();
+    const [year, month, day] = version.split(/[.-]/).map(Number);
+
+    // PR #1827 was merged around 2026.1.24
+    const isPatched = year > 2026 ||
+                     (year === 2026 && month > 1) ||
+                     (year === 2026 && month === 1 && day >= 24);
+
+    if (!isPatched) {
+      issues.push({
+        code: 'CLAWDBOT_VERSION_VULNERABLE',
+        severity: 'high',
+        message: `Clawdbot version ${version} may be vulnerable to prompt injection (PR #1827)`,
+        fix: 'Update to version 2026.1.24 or later: npm update -g clawdbot',
+      });
+    } else {
+      checks.push({
+        name: 'Clawdbot version',
+        passed: true,
+        message: `Version ${version} includes prompt injection protection`,
+      });
+    }
+
+  } catch (error) {
+    checks.push({
+      name: 'Prompt injection protection',
+      passed: false,
+      message: 'Could not verify protection status',
+    });
+    issues.push({
+      code: 'PROMPT_INJECTION_CHECK_FAILED',
+      severity: 'medium',
+      message: 'Unable to verify prompt injection protection',
+      fix: 'Manually verify Clawdbot version is 2026.1.24 or later',
     });
   }
 
