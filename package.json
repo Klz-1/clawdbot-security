@@ -1,7 +1,7 @@
 {
   "name": "clawdbot-security",
-  "version": "0.1.0",
-  "description": "Comprehensive security management system for Clawdbot - automated hardening, CVE tracking, and compliance reporting",
+  "version": "0.5.0",
+  "description": "Community-built comprehensive security management for ANY Clawdbot installation - automated hardening, CVE tracking, and compliance reporting",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -24,7 +24,7 @@
     "nginx",
     "fail2ban"
   ],
-  "author": "Clawdbot Security Team",
+  "author": "Klz-1 (Community Project)",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
@@ -51,10 +51,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawdbot-security/clawdbot-security.git"
+    "url": "https://github.com/Klz-1/clawdbot-security.git"
   },
   "bugs": {
-    "url": "https://github.com/clawdbot-security/clawdbot-security/issues"
+    "url": "https://github.com/Klz-1/clawdbot-security/issues"
   },
-  "homepage": "https://github.com/clawdbot-security/clawdbot-security#readme"
+  "homepage": "https://github.com/Klz-1/clawdbot-security#readme"
 }
