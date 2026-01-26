@@ -1,10 +1,10 @@
 /**
  * Setup Command - Interactive security setup wizard
- * Phase 2 - To be implemented
+ * Phase 2 Implementation
  */
 
 import { Command } from 'commander';
-import chalk from 'chalk';
+import { runSecuritySetupWizard } from '../wizard/setup.js';
 
 export function registerSetupCommand(program: Command): void {
   program
@@ -12,12 +12,14 @@ export function registerSetupCommand(program: Command): void {
     .description('Run interactive security setup wizard')
     .option('--profile <name>', 'Security profile to apply')
     .option('--non-interactive', 'Skip prompts')
+    .option('--nginx', 'Apply nginx hardening')
+    .option('--fail2ban', 'Configure fail2ban')
     .action(async (options) => {
-      console.log(chalk.yellow('⚠  Setup wizard coming in Phase 2!'));
-      console.log();
-      console.log('For now, you can manually apply a profile:');
-      console.log(
-        chalk.cyan('  clawdbot-security profile standard')
-      );
+      try {
+        await runSecuritySetupWizard(options);
+      } catch (err: any) {
+        console.error('Setup failed:', err.message);
+        process.exit(1);
+      }
     });
 }

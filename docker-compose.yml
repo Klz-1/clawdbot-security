@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  clawdbot-security:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: clawdbot-security:latest
+    container_name: clawdbot-security
+    restart: unless-stopped
+
+    # Ports
+    ports:
+      - "18789:18789"  # Gateway
+      - "8080:8080"    # HTTP
+      - "443:443"      # HTTPS
+
+    # Environment variables
+    environment:
+      - NODE_ENV=production
+      - SECURITY_PROFILE=standard
+      - TZ=UTC
+
+    # Volumes for persistence
+    volumes:
+      - clawdbot-config:/home/clawdbot/.clawdbot
+      - clawdbot-logs:/home/clawdbot/.clawdbot/logs
+      - clawdbot-backups:/home/clawdbot/.clawdbot/backups
+      - nginx-config:/etc/nginx
+      - fail2ban-config:/etc/fail2ban
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "su", "-", "clawdbot", "-c", "clawdbot-security status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Networks
+    networks:
+      - clawdbot-network
+
+# Named volumes
+volumes:
+  clawdbot-config:
+    driver: local
+  clawdbot-logs:
+    driver: local
+  clawdbot-backups:
+    driver: local
+  nginx-config:
+    driver: local
+  fail2ban-config:
+    driver: local
+
+# Networks
+networks:
+  clawdbot-network:
+    driver: bridge
