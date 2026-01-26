@@ -1,0 +1,60 @@
+{
+  "name": "clawdbot-security",
+  "version": "0.1.0",
+  "description": "Comprehensive security management system for Clawdbot - automated hardening, CVE tracking, and compliance reporting",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "clawdbot-security": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "clawdbot",
+    "security",
+    "hardening",
+    "cve",
+    "audit",
+    "compliance",
+    "nginx",
+    "fail2ban"
+  ],
+  "author": "Clawdbot Security Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "@clack/prompts": "^0.7.0",
+    "zod": "^3.22.4",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1",
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
+    "execa": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/blessed": "^0.1.25",
+    "typescript": "^5.3.3",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawdbot-security/clawdbot-security.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clawdbot-security/clawdbot-security/issues"
+  },
+  "homepage": "https://github.com/clawdbot-security/clawdbot-security#readme"
+}
