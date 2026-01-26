@@ -348,49 +348,171 @@ async function checkGatewayAuth(config: any): Promise<{ checks: AuditCheck[]; is
   return { checks, issues };
 }
 
+/**
+ * Comprehensive Network Port Exposure Check
+ *
+ * Categorizes listening ports by exposure level:
+ * - Public (0.0.0.0, ::) - Internet accessible
+ * - Tailscale (100.*, fd7a:*) - VPN only
+ * - Localhost (127.0.0.1, ::1) - Local only
+ *
+ * Identifies services and provides security recommendations.
+ */
 async function checkNetworkExposure(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   try {
     // Check for listening ports
-    const { stdout } = await execAsync('ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "unavailable"');
+    const { stdout } = await execAsync('ss -tuln 2>/dev/null || netstat -tuln 2>/dev/null || echo "unavailable"');
 
-    if (stdout !== 'unavailable') {
-      const lines = stdout.split('\n');
-      const listeningPorts: string[] = [];
+    if (stdout === 'unavailable') {
+      checks.push({
+        name: 'Network exposure',
+        passed: true,
+        message: 'Could not check (requires ss or netstat)',
+      });
+      return { checks, issues };
+    }
 
-      for (const line of lines) {
-        if (line.includes('LISTEN') && !line.includes('127.0.0.1') && !line.includes('[::1]')) {
-          listeningPorts.push(line.trim());
+    const lines = stdout.split('\n');
+    const publicPorts: { port: string; address: string }[] = [];
+    const tailscalePorts: { port: string; address: string }[] = [];
+    const localhostPorts: { port: string; address: string }[] = [];
+
+    // Common service port mappings
+    const serviceNames: Record<string, string> = {
+      '22': 'SSH',
+      '80': 'HTTP',
+      '443': 'HTTPS',
+      '631': 'CUPS/Printing',
+      '3000': 'Web Service',
+      '3001': 'Web Service',
+      '3002': 'Web Service',
+      '5432': 'PostgreSQL',
+      '8042': 'Task Viewer',
+      '8080': 'HTTP/nginx',
+      '8222': 'Vaultwarden',
+      '18789': 'Clawdbot Gateway',
+      '18791': 'Clawdbot Gateway',
+      '18792': 'Clawdbot Gateway',
+    };
+
+    for (const line of lines) {
+      if (!line.includes('LISTEN')) continue;
+
+      // Extract address and port from line
+      const match = line.match(/LISTEN\s+\d+\s+\d+\s+([\S]+):(\d+)/);
+      if (!match) continue;
+
+      const [, address, port] = match;
+
+      // Skip localhost
+      if (address.includes('127.0.0.1') || address.includes('127.0.0.53') ||
+          address.includes('::1') || address === 'localhost') {
+        localhostPorts.push({ port, address });
+        continue;
+      }
+
+      // Check for Tailscale IPs (typically 100.x.x.x or fd7a:*)
+      if (address.startsWith('100.') || address.startsWith('fd7a:')) {
+        tailscalePorts.push({ port, address });
+        continue;
+      }
+
+      // Public interfaces (0.0.0.0, ::, or other IPs)
+      if (address === '0.0.0.0' || address === '::' || address === '*') {
+        publicPorts.push({ port, address });
+      }
+    }
+
+    // Check each category
+    if (publicPorts.length > 0) {
+      for (const { port, address } of publicPorts) {
+        const serviceName = serviceNames[port] || 'Unknown Service';
+
+        // Determine severity
+        let severity: Severity = 'medium';
+        let recommendation = '';
+
+        if (port === '22') {
+          // SSH is acceptable if key-based auth
+          severity = 'low';
+          recommendation = 'Ensure SSH uses key-based authentication (not passwords)';
+        } else if (port === '631') {
+          // CUPS should not be public
+          severity = 'high';
+          recommendation = 'Disable CUPS: sudo systemctl stop cups && sudo systemctl disable cups';
+        } else if (['8080', '8042', '8222', '3000', '3001', '3002'].includes(port)) {
+          // Web services should be Tailscale-only
+          severity = 'high';
+          recommendation = `Restrict to Tailscale: bind to 100.x.x.x instead of ${address}`;
+        } else if (['18789', '18791', '18792'].includes(port)) {
+          // Clawdbot gateways should NEVER be public
+          severity = 'critical';
+          recommendation = 'CRITICAL: Clawdbot gateway exposed! Must bind to localhost only';
+        } else {
+          severity = 'medium';
+          recommendation = 'Review if this service needs to be publicly accessible';
+        }
+
+        checks.push({
+          name: `Port ${port} (${serviceName})`,
+          passed: port === '22', // Only SSH is acceptable public
+          message: `Listening on ${address}:${port}`,
+        });
+
+        if (port !== '22') {
+          issues.push({
+            code: `PUBLIC_PORT_${port}`,
+            severity,
+            message: `${serviceName} exposed on public interface ${address}:${port}`,
+            fix: recommendation,
+          });
         }
       }
 
-      if (listeningPorts.length > 0) {
-        checks.push({
-          name: 'Network exposure',
-          passed: false,
-          message: `${listeningPorts.length} port(s) listening on public interfaces`,
-        });
-        issues.push({
-          code: 'PUBLIC_PORTS',
-          severity: 'medium',
-          message: `Found ${listeningPorts.length} publicly accessible port(s)`,
-          fix: 'Review open ports and restrict to localhost or use VPN',
-        });
-      } else {
-        checks.push({
-          name: 'Network exposure',
-          passed: true,
-          message: 'No public ports detected',
-        });
-      }
+      checks.push({
+        name: 'Public network exposure',
+        passed: publicPorts.length === 1 && publicPorts[0].port === '22',
+        message: `${publicPorts.length} port(s) on public interfaces`,
+      });
+    } else {
+      checks.push({
+        name: 'Public network exposure',
+        passed: true,
+        message: 'No public ports detected (excellent!)',
+      });
     }
-  } catch {
+
+    // Tailscale ports (informational)
+    if (tailscalePorts.length > 0) {
+      const tailscaleServices = tailscalePorts.map(p => {
+        const serviceName = serviceNames[p.port] || 'Unknown';
+        return `${p.port} (${serviceName})`;
+      }).join(', ');
+
+      checks.push({
+        name: 'Tailscale-only services',
+        passed: true,
+        message: `${tailscalePorts.length} service(s) on VPN: ${tailscaleServices}`,
+      });
+    }
+
+    // Localhost ports (informational)
+    if (localhostPorts.length > 0) {
+      checks.push({
+        name: 'Localhost services',
+        passed: true,
+        message: `${localhostPorts.length} service(s) on localhost (secure)`,
+      });
+    }
+
+  } catch (error) {
     checks.push({
       name: 'Network exposure',
       passed: true,
-      message: 'Could not check (requires ss or netstat)',
+      message: 'Could not check network ports',
     });
   }
 
