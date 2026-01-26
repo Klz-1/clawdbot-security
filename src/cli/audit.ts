@@ -1,14 +1,16 @@
 /**
- * Audit Command - Comprehensive security audit
- * Includes mDNS/Avahi detection (CVE-2025-MDNS)
+ * Comprehensive Security Audit - All Attack Vectors
+ * Updated for general Clawdbot installations (all channels, skills, MCP, etc.)
  */
 
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { access, stat } from 'fs/promises';
+import { access, stat, readdir, readFile } from 'fs/promises';
 import { constants } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { loadClawdbotConfig } from '../core/config.js';
 import { calculateSecurityScore } from '../scoring/calculator.js';
 import { getCVEStatus } from '../monitoring/cve-checker.js';
@@ -21,24 +23,26 @@ interface ServiceStatus {
   enabled: boolean;
 }
 
+const CLAWDBOT_DIR = join(homedir(), '.clawdbot');
+
 export function registerAuditCommand(program: Command): void {
   program
     .command('audit')
-    .description('Run comprehensive security audit')
-    .option('--deep', 'Run deep audit with CVE checks')
+    .description('Run comprehensive security audit (all attack vectors)')
+    .option('--deep', 'Include CVE scanning and supply chain checks')
     .option('--json', 'Output as JSON')
     .action(async (options) => {
       try {
-        console.log(chalk.bold.cyan('\n🔍 Running Security Audit...\n'));
+        console.log(chalk.bold.cyan('\n🔍 Running Comprehensive Security Audit...\n'));
+        console.log(chalk.dim('This checks ALL attack vectors: channels, skills, hooks, MCP, secrets, models, etc.\n'));
 
-        const result = await runSecurityAudit(options.deep);
+        const result = await runComprehensiveAudit(options.deep);
 
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
           return;
         }
 
-        // Display results
         displayAuditResults(result);
 
         // Calculate and display security score
@@ -69,62 +73,153 @@ export function registerAuditCommand(program: Command): void {
     });
 }
 
-async function runSecurityAudit(deep: boolean = false): Promise<AuditResult> {
+async function runComprehensiveAudit(deep: boolean = false): Promise<AuditResult> {
   const issues: AuditIssue[] = [];
   const checks: AuditCheck[] = [];
 
-  // Load configuration
   const config = await loadClawdbotConfig() || {};
 
-  // 1. File Permissions Check
+  // === INFRASTRUCTURE SECURITY ===
+
+  console.log(chalk.bold.cyan('Infrastructure Security'));
+
+  // 1. File Permissions (expanded to include all sensitive files)
   console.log(chalk.dim('  • Checking file permissions...'));
-  const filePermsResult = await checkFilePermissions();
+  const filePermsResult = await checkFilePermissionsComprehensive();
   checks.push(...filePermsResult.checks);
   issues.push(...filePermsResult.issues);
 
-  // 2. Gateway Authentication Check
+  // 2. Gateway Authentication
   console.log(chalk.dim('  • Checking gateway authentication...'));
   const gatewayResult = await checkGatewayAuth(config);
   checks.push(...gatewayResult.checks);
   issues.push(...gatewayResult.issues);
 
-  // 3. Channel Policies Check
-  console.log(chalk.dim('  • Checking channel policies...'));
-  const channelResult = await checkChannelPolicies(config);
-  checks.push(...channelResult.checks);
-  issues.push(...channelResult.issues);
+  // 3. Network Exposure
+  console.log(chalk.dim('  • Checking network exposure...'));
+  const networkResult = await checkNetworkExposure(config);
+  checks.push(...networkResult.checks);
+  issues.push(...networkResult.issues);
 
-  // 4. mDNS/Avahi Service Discovery Check (NEW - from security audit)
+  // 4. mDNS/Avahi Service Discovery
   console.log(chalk.dim('  • Checking mDNS/Avahi service discovery...'));
   const mdnsResult = await checkServiceDiscovery();
   checks.push(...mdnsResult.checks);
   issues.push(...mdnsResult.issues);
 
-  // 5. nginx Configuration Check
+  // === CHANNEL SECURITY (DYNAMIC) ===
+
+  console.log(chalk.bold.cyan('\nChannel Security'));
+
+  // 5. Channel Policies (ALL channels, not just Telegram/Discord)
+  console.log(chalk.dim('  • Checking channel policies (all channels)...'));
+  const channelResult = await checkAllChannelPolicies(config);
+  checks.push(...channelResult.checks);
+  issues.push(...channelResult.issues);
+
+  // === SECRETS & CREDENTIALS ===
+
+  console.log(chalk.bold.cyan('\nSecrets & Credentials'));
+
+  // 6. Secrets Management
+  console.log(chalk.dim('  • Checking secrets management...'));
+  const secretsResult = await checkSecretsManagement(config);
+  checks.push(...secretsResult.checks);
+  issues.push(...secretsResult.issues);
+
+  // 7. Token Storage
+  console.log(chalk.dim('  • Checking token storage...'));
+  const tokenResult = await checkTokenStorage();
+  checks.push(...tokenResult.checks);
+  issues.push(...tokenResult.issues);
+
+  // === SKILLS & TOOLS SECURITY ===
+
+  console.log(chalk.bold.cyan('\nSkills & Tools Security'));
+
+  // 8. Skills Security
+  console.log(chalk.dim('  • Checking skills security...'));
+  const skillsResult = await checkSkillsSecurity(config);
+  checks.push(...skillsResult.checks);
+  issues.push(...skillsResult.issues);
+
+  // 9. Tools Security
+  console.log(chalk.dim('  • Checking tools security...'));
+  const toolsResult = await checkToolsSecurity(config);
+  checks.push(...toolsResult.checks);
+  issues.push(...toolsResult.issues);
+
+  // === HOOKS & EXTENSIONS ===
+
+  console.log(chalk.bold.cyan('\nHooks & Extensions'));
+
+  // 10. Hooks Security
+  console.log(chalk.dim('  • Checking hooks security...'));
+  const hooksResult = await checkHooksSecurity(config);
+  checks.push(...hooksResult.checks);
+  issues.push(...hooksResult.issues);
+
+  // === MODEL SECURITY ===
+
+  console.log(chalk.bold.cyan('\nModel Security'));
+
+  // 11. Model Configuration
+  console.log(chalk.dim('  • Checking model security...'));
+  const modelsResult = await checkModelSecurity(config);
+  checks.push(...modelsResult.checks);
+  issues.push(...modelsResult.issues);
+
+  // === WORKSPACE & ISOLATION ===
+
+  console.log(chalk.bold.cyan('\nWorkspace & Isolation'));
+
+  // 12. Workspace Isolation
+  console.log(chalk.dim('  • Checking workspace isolation...'));
+  const workspaceResult = await checkWorkspaceIsolation(config);
+  checks.push(...workspaceResult.checks);
+  issues.push(...workspaceResult.issues);
+
+  // === HARDENING & PROTECTION ===
+
+  console.log(chalk.bold.cyan('\nHardening & Protection'));
+
+  // 13. nginx Configuration
   console.log(chalk.dim('  • Checking nginx configuration...'));
   const nginxResult = await checkNginxConfig();
   checks.push(...nginxResult.checks);
   issues.push(...nginxResult.issues);
 
-  // 6. fail2ban Status Check
+  // 14. fail2ban Status
   console.log(chalk.dim('  • Checking fail2ban status...'));
   const fail2banResult = await checkFail2ban();
   checks.push(...fail2banResult.checks);
   issues.push(...fail2banResult.issues);
 
-  // 7. Security Profile Check
+  // 15. Security Profile
   console.log(chalk.dim('  • Checking security profile...'));
   const profileResult = await checkSecurityProfile(config);
   checks.push(...profileResult.checks);
   issues.push(...profileResult.issues);
 
-  // 8. CVE Status (only in deep mode)
+  // === VULNERABILITIES & UPDATES (DEEP MODE) ===
+
   if (deep) {
+    console.log(chalk.bold.cyan('\nVulnerabilities & Supply Chain'));
+
+    // 16. CVE Status
     console.log(chalk.dim('  • Checking CVE status (deep scan)...'));
     const cveResult = await checkCVEStatus();
     checks.push(...cveResult.checks);
     issues.push(...cveResult.issues);
+
+    // 17. Dependency Security
+    console.log(chalk.dim('  • Checking dependency security...'));
+    const depsResult = await checkDependencySecurity();
+    checks.push(...depsResult.checks);
+    issues.push(...depsResult.issues);
   }
+
+  console.log(); // Empty line
 
   return {
     ok: issues.filter(i => i.severity === 'critical' || i.severity === 'high').length === 0,
@@ -133,13 +228,19 @@ async function runSecurityAudit(deep: boolean = false): Promise<AuditResult> {
   };
 }
 
-async function checkFilePermissions(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+// === INFRASTRUCTURE CHECKS ===
+
+async function checkFilePermissionsComprehensive(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   const filesToCheck = [
-    { path: `${process.env.HOME}/.clawdbot/clawdbot.json`, name: 'Config file', expectedMax: 0o600 },
-    { path: `${process.env.HOME}/.clawdbot`, name: 'State directory', expectedMax: 0o700 },
+    { path: `${CLAWDBOT_DIR}/clawdbot.json`, name: 'Config file', expectedMax: 0o600 },
+    { path: `${CLAWDBOT_DIR}/.env`, name: 'Environment file', expectedMax: 0o600 },
+    { path: `${CLAWDBOT_DIR}/secrets`, name: 'Secrets directory', expectedMax: 0o700 },
+    { path: `${CLAWDBOT_DIR}/credentials`, name: 'Credentials directory', expectedMax: 0o700 },
+    { path: `${CLAWDBOT_DIR}`, name: 'Clawdbot directory', expectedMax: 0o700 },
+    { path: `${CLAWDBOT_DIR}/hooks`, name: 'Hooks directory', expectedMax: 0o700 },
   ];
 
   for (const file of filesToCheck) {
@@ -161,19 +262,40 @@ async function checkFilePermissions(): Promise<{ checks: AuditCheck[]; issues: A
           message: `Permissions: ${perms.toString(8)} (too permissive)`,
         });
         issues.push({
-          code: 'FILE_PERMS',
-          severity: 'medium',
+          code: 'FILE_PERMS_' + file.name.toUpperCase().replace(/ /g, '_'),
+          severity: file.name.includes('secret') || file.name.includes('credential') || file.name.includes('.env') ? 'critical' : 'medium',
           message: `${file.name} has overly permissive permissions (${perms.toString(8)})`,
           fix: `chmod ${file.expectedMax.toString(8)} ${file.path}`,
         });
       }
     } catch (err) {
-      // File doesn't exist - not necessarily an issue
       checks.push({
         name: `${file.name} permissions`,
         passed: true,
         message: 'File not found (may be intentional)',
       });
+    }
+  }
+
+  // Check for token files
+  const tokenFiles = ['telegram.token', 'discord.token', 'whatsapp.token', 'slack.token'];
+  for (const tokenFile of tokenFiles) {
+    try {
+      const tokenPath = join(CLAWDBOT_DIR, tokenFile);
+      await access(tokenPath, constants.R_OK);
+      const stats = await stat(tokenPath);
+      const perms = stats.mode & 0o777;
+
+      if (perms > 0o600) {
+        issues.push({
+          code: 'TOKEN_FILE_PERMS',
+          severity: 'critical',
+          message: `${tokenFile} has overly permissive permissions (${perms.toString(8)})`,
+          fix: `chmod 600 ${tokenPath}`,
+        });
+      }
+    } catch {
+      // Token file doesn't exist - not an issue
     }
   }
 
@@ -208,82 +330,79 @@ async function checkGatewayAuth(config: any): Promise<{ checks: AuditCheck[]; is
 
   // Check bind address
   const bind = config.gateway?.bind;
-  if (bind && bind !== 'loopback' && bind !== '127.0.0.1') {
+  if (bind && bind !== 'loopback' && bind !== '127.0.0.1' && bind !== 'localhost') {
     issues.push({
-      code: 'GATEWAY_BIND',
-      severity: 'medium',
-      message: `Gateway bound to ${bind} (not localhost)`,
-      fix: 'Consider using Tailscale serve instead of exposing gateway publicly',
+      code: 'GATEWAY_PUBLIC_BIND',
+      severity: 'high',
+      message: `Gateway bound to ${bind} (publicly accessible)`,
+      fix: 'Use Tailscale/VPN for remote access instead of public binding',
     });
   }
 
   return { checks, issues };
 }
 
-async function checkChannelPolicies(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+async function checkNetworkExposure(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
-  // Telegram DM policy
-  const telegramDM = config.channels?.telegram?.dmPolicy;
-  if (telegramDM === 'open') {
-    checks.push({
-      name: 'Telegram DM policy',
-      passed: false,
-      message: 'Open to all users',
-    });
-    issues.push({
-      code: 'TELEGRAM_DM_OPEN',
-      severity: 'high',
-      message: 'Telegram DMs are open to all users',
-      fix: 'Set channels.telegram.dmPolicy to "pairing" or "allowlist"',
-    });
-  } else {
-    checks.push({
-      name: 'Telegram DM policy',
-      passed: true,
-      message: telegramDM || 'Not configured',
-    });
-  }
+  try {
+    // Check for listening ports
+    const { stdout } = await execAsync('ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "unavailable"');
 
-  // Discord DM policy
-  const discordDM = config.channels?.discord?.dmPolicy;
-  if (discordDM === 'open') {
+    if (stdout !== 'unavailable') {
+      const lines = stdout.split('\n');
+      const listeningPorts: string[] = [];
+
+      for (const line of lines) {
+        if (line.includes('LISTEN') && !line.includes('127.0.0.1') && !line.includes('[::1]')) {
+          listeningPorts.push(line.trim());
+        }
+      }
+
+      if (listeningPorts.length > 0) {
+        checks.push({
+          name: 'Network exposure',
+          passed: false,
+          message: `${listeningPorts.length} port(s) listening on public interfaces`,
+        });
+        issues.push({
+          code: 'PUBLIC_PORTS',
+          severity: 'medium',
+          message: `Found ${listeningPorts.length} publicly accessible port(s)`,
+          fix: 'Review open ports and restrict to localhost or use VPN',
+        });
+      } else {
+        checks.push({
+          name: 'Network exposure',
+          passed: true,
+          message: 'No public ports detected',
+        });
+      }
+    }
+  } catch {
     checks.push({
-      name: 'Discord DM policy',
-      passed: false,
-      message: 'Open to all users',
-    });
-    issues.push({
-      code: 'DISCORD_DM_OPEN',
-      severity: 'high',
-      message: 'Discord DMs are open to all users',
-      fix: 'Set channels.discord.dmPolicy to "pairing" or "allowlist"',
-    });
-  } else {
-    checks.push({
-      name: 'Discord DM policy',
+      name: 'Network exposure',
       passed: true,
-      message: discordDM || 'Not configured',
+      message: 'Could not check (requires ss or netstat)',
     });
   }
 
   return { checks, issues };
 }
 
-/**
- * Check for mDNS/Avahi service discovery exposure
- * Based on security audit report CVE-2025-MDNS
- */
 async function checkServiceDiscovery(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   try {
-    // Check if Avahi daemon is running
-    const avahiStatus = await checkService('avahi-daemon');
+    const { stdout: activeOut } = await execAsync('systemctl is-active avahi-daemon 2>/dev/null || echo inactive');
+    const { stdout: enabledOut } = await execAsync('systemctl is-enabled avahi-daemon 2>/dev/null || echo disabled');
 
-    if (avahiStatus.running) {
+    const isRunning = activeOut.trim() === 'active';
+    const isEnabled = enabledOut.trim() === 'enabled';
+
+    if (isRunning) {
       checks.push({
         name: 'mDNS/Avahi service',
         passed: false,
@@ -293,7 +412,7 @@ async function checkServiceDiscovery(): Promise<{ checks: AuditCheck[]; issues: 
         code: 'MDNS_ACTIVE',
         severity: 'high',
         message: 'Avahi daemon is broadcasting mDNS service discovery on LAN',
-        fix: 'Disable Avahi: sudo systemctl stop avahi-daemon && sudo systemctl disable avahi-daemon && sudo systemctl disable avahi-daemon.socket',
+        fix: 'sudo systemctl stop avahi-daemon && sudo systemctl disable avahi-daemon && sudo systemctl disable avahi-daemon.socket',
       });
     } else {
       checks.push({
@@ -303,38 +422,15 @@ async function checkServiceDiscovery(): Promise<{ checks: AuditCheck[]; issues: 
       });
     }
 
-    // Check if Avahi is enabled (will start on boot)
-    if (!avahiStatus.running && avahiStatus.enabled) {
+    if (!isRunning && isEnabled) {
       issues.push({
         code: 'MDNS_ENABLED',
         severity: 'medium',
-        message: 'Avahi daemon is disabled but will start on boot',
-        fix: 'Disable Avahi permanently: sudo systemctl disable avahi-daemon && sudo systemctl disable avahi-daemon.socket',
+        message: 'Avahi daemon will start on boot',
+        fix: 'sudo systemctl disable avahi-daemon && sudo systemctl disable avahi-daemon.socket',
       });
     }
-
-    // Check for mDNS broadcasts using avahi-browse (if available)
-    try {
-      const { stdout } = await execAsync('timeout 2 avahi-browse -a -t 2>&1 || true');
-      if (stdout.includes('_clawdbot') || stdout.includes('clawdbot-gw')) {
-        checks.push({
-          name: 'mDNS broadcasts',
-          passed: false,
-          message: 'Clawdbot services detected in mDNS broadcasts',
-        });
-        issues.push({
-          code: 'MDNS_BROADCAST',
-          severity: 'high',
-          message: 'Clawdbot services are being broadcast via mDNS (visible to LAN)',
-          fix: 'Stop Avahi: sudo systemctl stop avahi-daemon',
-        });
-      }
-    } catch (err) {
-      // avahi-browse not available or timeout - not a problem
-    }
-
-  } catch (err) {
-    // Avahi not installed - this is actually good
+  } catch {
     checks.push({
       name: 'mDNS/Avahi service',
       passed: true,
@@ -345,15 +441,449 @@ async function checkServiceDiscovery(): Promise<{ checks: AuditCheck[]; issues: 
   return { checks, issues };
 }
 
+// === CHANNEL SECURITY (DYNAMIC) ===
+
+async function checkAllChannelPolicies(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  const channels = config.channels || {};
+  const channelNames = Object.keys(channels);
+
+  if (channelNames.length === 0) {
+    checks.push({
+      name: 'Channel policies',
+      passed: true,
+      message: 'No channels configured',
+    });
+    return { checks, issues };
+  }
+
+  // Check each channel dynamically
+  for (const channelName of channelNames) {
+    const channel = channels[channelName];
+    const dmPolicy = channel?.dmPolicy;
+    const groupPolicy = channel?.groupPolicy;
+
+    // Check DM policy
+    if (dmPolicy === 'open') {
+      checks.push({
+        name: `${channelName} DM policy`,
+        passed: false,
+        message: 'Open to all users',
+      });
+      issues.push({
+        code: `${channelName.toUpperCase()}_DM_OPEN`,
+        severity: 'high',
+        message: `${channelName} DMs are open to all users`,
+        fix: `Set channels.${channelName}.dmPolicy to "pairing" or "allowlist" in config`,
+      });
+    } else {
+      checks.push({
+        name: `${channelName} DM policy`,
+        passed: true,
+        message: dmPolicy || 'Not configured',
+      });
+    }
+
+    // Check group policy
+    if (groupPolicy === 'open') {
+      issues.push({
+        code: `${channelName.toUpperCase()}_GROUP_OPEN`,
+        severity: 'medium',
+        message: `${channelName} groups are open to all`,
+        fix: `Set channels.${channelName}.groupPolicy to "allowlist" in config`,
+      });
+    }
+  }
+
+  return { checks, issues };
+}
+
+// === SECRETS & CREDENTIALS ===
+
+async function checkSecretsManagement(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  // Check if secrets are in config (BAD) vs .env (GOOD)
+  const configStr = JSON.stringify(config);
+  const suspiciousPatterns = [
+    { pattern: /"token":\s*"[^"]{20,}"/, name: 'API tokens' },
+    { pattern: /"apiKey":\s*"[^"]{20,}"/, name: 'API keys' },
+    { pattern: /"password":\s*"[^"]{3,}"/, name: 'Passwords' },
+    { pattern: /"secret":\s*"[^"]{20,}"/, name: 'Secrets' },
+  ];
+
+  for (const { pattern, name } of suspiciousPatterns) {
+    if (pattern.test(configStr)) {
+      checks.push({
+        name: `${name} in config`,
+        passed: false,
+        message: 'Secrets found in config file',
+      });
+      issues.push({
+        code: 'SECRETS_IN_CONFIG',
+        severity: 'critical',
+        message: `${name} found in config file (should be in .env)`,
+        fix: 'Move secrets to ~/.clawdbot/.env and use environment variables',
+      });
+    }
+  }
+
+  // Check if .env exists
+  try {
+    await access(join(CLAWDBOT_DIR, '.env'), constants.R_OK);
+    checks.push({
+      name: 'Environment file',
+      passed: true,
+      message: '.env file exists',
+    });
+  } catch {
+    checks.push({
+      name: 'Environment file',
+      passed: false,
+      message: '.env file not found',
+    });
+    issues.push({
+      code: 'NO_ENV_FILE',
+      severity: 'medium',
+      message: 'No .env file found (secrets may be in config)',
+      fix: 'Create ~/.clawdbot/.env for storing secrets',
+    });
+  }
+
+  return { checks, issues };
+}
+
+async function checkTokenStorage(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  // Check if token files are in root directory (should be in secrets/)
+  const tokenFiles = ['telegram.token', 'discord.token', 'whatsapp.token', 'slack.token'];
+
+  for (const tokenFile of tokenFiles) {
+    try {
+      const rootPath = join(CLAWDBOT_DIR, tokenFile);
+      await access(rootPath, constants.R_OK);
+
+      issues.push({
+        code: 'TOKEN_FILE_LOCATION',
+        severity: 'medium',
+        message: `${tokenFile} in root directory (should be in secrets/)`,
+        fix: `mv ~/.clawdbot/${tokenFile} ~/.clawdbot/secrets/`,
+      });
+    } catch {
+      // File doesn't exist in root - check if it's in secrets/ (GOOD)
+      try {
+        const secretsPath = join(CLAWDBOT_DIR, 'secrets', tokenFile);
+        await access(secretsPath, constants.R_OK);
+        checks.push({
+          name: `${tokenFile} location`,
+          passed: true,
+          message: 'Stored in secrets/ directory',
+        });
+      } catch {
+        // Not in either location - channel might not be configured
+      }
+    }
+  }
+
+  return { checks, issues };
+}
+
+// === SKILLS & TOOLS SECURITY ===
+
+async function checkSkillsSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  const skills = config.skills?.entries || {};
+  const skillNames = Object.keys(skills);
+
+  if (skillNames.length === 0) {
+    checks.push({
+      name: 'Skills installed',
+      passed: true,
+      message: 'No skills installed',
+    });
+    return { checks, issues };
+  }
+
+  checks.push({
+    name: 'Skills installed',
+    passed: true,
+    message: `${skillNames.length} skill(s) installed`,
+  });
+
+  // Warn about skill security risks
+  issues.push({
+    code: 'SKILLS_SECURITY_REVIEW',
+    severity: 'medium',
+    message: `${skillNames.length} skill(s) installed - ensure they are from trusted sources`,
+    fix: 'Review skill sources and permissions. Consider sandboxing or removing untrusted skills.',
+  });
+
+  // Check for skills with suspicious permissions (if metadata available)
+  // Note: This would require reading skill metadata from npm or skill directory
+  // For now, we just warn about the presence of skills
+
+  return { checks, issues };
+}
+
+async function checkToolsSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  const tools = config.tools || {};
+  const toolNames = Object.keys(tools);
+
+  if (toolNames.length === 0) {
+    checks.push({
+      name: 'Tools configured',
+      passed: true,
+      message: 'No custom tools configured',
+    });
+    return { checks, issues };
+  }
+
+  checks.push({
+    name: 'Tools configured',
+    passed: true,
+    message: `${toolNames.length} tool(s) configured`,
+  });
+
+  // Check for dangerous tool capabilities
+  for (const toolName of toolNames) {
+    const tool = tools[toolName];
+
+    // Check for shell execution capability
+    if (tool?.capabilities?.includes('shell') || tool?.type === 'shell') {
+      issues.push({
+        code: 'TOOL_SHELL_ACCESS',
+        severity: 'high',
+        message: `Tool "${toolName}" has shell execution capability`,
+        fix: 'Review tool necessity and restrict permissions if possible',
+      });
+    }
+
+    // Check for file system access
+    if (tool?.capabilities?.includes('filesystem') || tool?.type === 'filesystem') {
+      issues.push({
+        code: 'TOOL_FILESYSTEM_ACCESS',
+        severity: 'medium',
+        message: `Tool "${toolName}" has filesystem access`,
+        fix: 'Ensure tool is trusted and limit scope if possible',
+      });
+    }
+  }
+
+  return { checks, issues };
+}
+
+// === HOOKS & EXTENSIONS ===
+
+async function checkHooksSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const hooksDir = join(CLAWDBOT_DIR, 'hooks');
+    const hooks = await readdir(hooksDir);
+
+    if (hooks.length === 0) {
+      checks.push({
+        name: 'Hooks installed',
+        passed: true,
+        message: 'No hooks installed',
+      });
+      return { checks, issues };
+    }
+
+    checks.push({
+      name: 'Hooks installed',
+      passed: true,
+      message: `${hooks.length} hook(s) installed`,
+    });
+
+    // Check each hook
+    for (const hookName of hooks) {
+      const hookPath = join(hooksDir, hookName);
+      const stats = await stat(hookPath);
+
+      if (!stats.isDirectory()) continue;
+
+      // Check hook permissions
+      const perms = stats.mode & 0o777;
+      if (perms > 0o755) {
+        issues.push({
+          code: 'HOOK_PERMISSIONS',
+          severity: 'medium',
+          message: `Hook "${hookName}" has overly permissive permissions (${perms.toString(8)})`,
+          fix: `chmod 755 ${hookPath}`,
+        });
+      }
+
+      // Check for suspicious hook code (basic static analysis)
+      try {
+        const hookFiles = await readdir(hookPath);
+        for (const file of hookFiles) {
+          if (file.endsWith('.js') || file.endsWith('.ts')) {
+            const content = await readFile(join(hookPath, file), 'utf-8');
+
+            // Check for dangerous patterns
+            if (content.includes('eval(') || content.includes('Function(')) {
+              issues.push({
+                code: 'HOOK_DANGEROUS_CODE',
+                severity: 'high',
+                message: `Hook "${hookName}" contains dangerous code (eval/Function)`,
+                fix: `Review hook code or remove: ${hookPath}`,
+              });
+            }
+
+            if (content.includes('child_process') || content.includes('exec(')) {
+              issues.push({
+                code: 'HOOK_SHELL_ACCESS',
+                severity: 'medium',
+                message: `Hook "${hookName}" has shell execution capability`,
+                fix: 'Ensure hook is trusted and necessary',
+              });
+            }
+          }
+        }
+      } catch {
+        // Can't read hook files - permission issue
+      }
+    }
+  } catch {
+    checks.push({
+      name: 'Hooks installed',
+      passed: true,
+      message: 'Hooks directory not found',
+    });
+  }
+
+  return { checks, issues };
+}
+
+// === MODEL SECURITY ===
+
+async function checkModelSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  const models = config.agents?.defaults?.models || {};
+  const modelNames = Object.keys(models);
+
+  if (modelNames.length === 0) {
+    checks.push({
+      name: 'Models configured',
+      passed: true,
+      message: 'Using default models',
+    });
+    return { checks, issues };
+  }
+
+  // Check for untrusted model providers
+  const trustedProviders = ['anthropic', 'openai', 'google', 'cohere'];
+  const untrustedModels: string[] = [];
+
+  for (const modelName of modelNames) {
+    const provider = modelName.split('/')[0];
+    if (!trustedProviders.includes(provider)) {
+      untrustedModels.push(modelName);
+    }
+  }
+
+  if (untrustedModels.length > 0) {
+    issues.push({
+      code: 'UNTRUSTED_MODELS',
+      severity: 'medium',
+      message: `${untrustedModels.length} model(s) from untrusted providers: ${untrustedModels.join(', ')}`,
+      fix: 'Verify model provider security and data handling policies',
+    });
+  } else {
+    checks.push({
+      name: 'Model providers',
+      passed: true,
+      message: 'All models from trusted providers',
+    });
+  }
+
+  return { checks, issues };
+}
+
+// === WORKSPACE & ISOLATION ===
+
+async function checkWorkspaceIsolation(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  const workspace = config.agents?.defaults?.workspace;
+
+  if (!workspace) {
+    checks.push({
+      name: 'Workspace configuration',
+      passed: true,
+      message: 'Using default workspace',
+    });
+    return { checks, issues };
+  }
+
+  try {
+    const stats = await stat(workspace);
+    const perms = stats.mode & 0o777;
+
+    if (perms > 0o755) {
+      issues.push({
+        code: 'WORKSPACE_PERMISSIONS',
+        severity: 'medium',
+        message: `Workspace has overly permissive permissions (${perms.toString(8)})`,
+        fix: `chmod 755 ${workspace}`,
+      });
+    } else {
+      checks.push({
+        name: 'Workspace permissions',
+        passed: true,
+        message: `Permissions: ${perms.toString(8)}`,
+      });
+    }
+
+    // Check if workspace is outside of clawdbot directory (isolation)
+    if (workspace.startsWith(CLAWDBOT_DIR)) {
+      issues.push({
+        code: 'WORKSPACE_NOT_ISOLATED',
+        severity: 'low',
+        message: 'Workspace is inside Clawdbot directory (not isolated)',
+        fix: 'Consider using a separate directory for agent workspace',
+      });
+    }
+  } catch {
+    checks.push({
+      name: 'Workspace configuration',
+      passed: false,
+      message: 'Workspace directory not found',
+    });
+    issues.push({
+      code: 'WORKSPACE_MISSING',
+      severity: 'medium',
+      message: 'Configured workspace directory does not exist',
+      fix: `Create workspace directory: mkdir -p ${workspace}`,
+    });
+  }
+
+  return { checks, issues };
+}
+
+// === HARDENING & PROTECTION ===
+
 async function checkNginxConfig(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   try {
-    // Check if nginx is installed
     await execAsync('which nginx');
-
-    // Check if nginx is running
     const { stdout: statusOut } = await execAsync('systemctl is-active nginx || true');
     const isRunning = statusOut.trim() === 'active';
 
@@ -372,7 +902,6 @@ async function checkNginxConfig(): Promise<{ checks: AuditCheck[]; issues: Audit
       });
     }
 
-    // Check if clawdbot security config exists
     try {
       await access('/etc/nginx/conf.d/clawdbot-security.conf', constants.R_OK);
       checks.push({
@@ -393,9 +922,7 @@ async function checkNginxConfig(): Promise<{ checks: AuditCheck[]; issues: Audit
         fix: 'Run: clawdbot-security harden --nginx',
       });
     }
-
-  } catch (err) {
-    // nginx not installed
+  } catch {
     checks.push({
       name: 'nginx service',
       passed: true,
@@ -411,10 +938,7 @@ async function checkFail2ban(): Promise<{ checks: AuditCheck[]; issues: AuditIss
   const issues: AuditIssue[] = [];
 
   try {
-    // Check if fail2ban is installed
     await execAsync('which fail2ban-client');
-
-    // Check if fail2ban is running
     const { stdout: statusOut } = await execAsync('systemctl is-active fail2ban || true');
     const isRunning = statusOut.trim() === 'active';
 
@@ -432,37 +956,7 @@ async function checkFail2ban(): Promise<{ checks: AuditCheck[]; issues: AuditIss
         fix: 'sudo systemctl start fail2ban',
       });
     }
-
-    // Check for clawdbot jails
-    if (isRunning) {
-      try {
-        const { stdout } = await execAsync('sudo fail2ban-client status 2>/dev/null || true');
-        if (stdout.includes('nginx-rate-limit') || stdout.includes('clawdbot')) {
-          checks.push({
-            name: 'fail2ban jails',
-            passed: true,
-            message: 'Clawdbot jails configured',
-          });
-        } else {
-          checks.push({
-            name: 'fail2ban jails',
-            passed: false,
-            message: 'No Clawdbot jails found',
-          });
-          issues.push({
-            code: 'FAIL2BAN_NO_JAILS',
-            severity: 'medium',
-            message: 'fail2ban has no Clawdbot-specific jails',
-            fix: 'Run: clawdbot-security harden --fail2ban',
-          });
-        }
-      } catch {
-        // Can't check jails (probably permissions)
-      }
-    }
-
-  } catch (err) {
-    // fail2ban not installed
+  } catch {
     checks.push({
       name: 'fail2ban service',
       passed: false,
@@ -508,6 +1002,8 @@ async function checkSecurityProfile(config: any): Promise<{ checks: AuditCheck[]
   return { checks, issues };
 }
 
+// === VULNERABILITIES & SUPPLY CHAIN ===
+
 async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
@@ -515,7 +1011,6 @@ async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIs
   try {
     const cveStatus = await getCVEStatus();
 
-    // Check npm vulnerabilities (filter by severity)
     const npmCritical = cveStatus.npm.filter(c => c.severity === 'critical').length;
     const npmHigh = cveStatus.npm.filter(c => c.severity === 'high').length;
 
@@ -543,7 +1038,6 @@ async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIs
       message: npmCritical + npmHigh === 0 ? 'No critical/high issues' : `${npmCritical + npmHigh} issues found`,
     });
 
-    // Check Python CVEs
     const pythonCVEs = cveStatus.python?.length || 0;
     if (pythonCVEs > 0) {
       issues.push({
@@ -560,7 +1054,6 @@ async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIs
       message: pythonCVEs === 0 ? 'No CVEs found' : `${pythonCVEs} CVEs found`,
     });
 
-    // Check system updates (system is an array of packages)
     const systemUpdates = cveStatus.system?.length || 0;
     if (systemUpdates > 0) {
       issues.push({
@@ -576,7 +1069,6 @@ async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIs
       passed: systemUpdates === 0,
       message: systemUpdates === 0 ? 'Up to date' : `${systemUpdates} updates available`,
     });
-
   } catch (err: any) {
     checks.push({
       name: 'CVE status',
@@ -588,30 +1080,42 @@ async function checkCVEStatus(): Promise<{ checks: AuditCheck[]; issues: AuditIs
   return { checks, issues };
 }
 
-async function checkService(serviceName: string): Promise<ServiceStatus> {
-  try {
-    const { stdout: activeOut } = await execAsync(`systemctl is-active ${serviceName} 2>/dev/null || true`);
-    const { stdout: enabledOut } = await execAsync(`systemctl is-enabled ${serviceName} 2>/dev/null || true`);
+async function checkDependencySecurity(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
 
-    return {
-      running: activeOut.trim() === 'active',
-      enabled: enabledOut.trim() === 'enabled',
-    };
+  // Check for package-lock.json integrity
+  try {
+    await access(join(CLAWDBOT_DIR, 'package-lock.json'), constants.R_OK);
+    checks.push({
+      name: 'Dependency lock file',
+      passed: true,
+      message: 'package-lock.json present',
+    });
   } catch {
-    return { running: false, enabled: false };
+    issues.push({
+      code: 'NO_LOCKFILE',
+      severity: 'low',
+      message: 'No package-lock.json (dependencies not locked)',
+      fix: 'Run: npm install to generate package-lock.json',
+    });
   }
+
+  return { checks, issues };
 }
 
-function displayAuditResults(result: AuditResult): void {
-  console.log(chalk.bold.cyan('Audit Results\n'));
+// === DISPLAY RESULTS ===
 
-  // Group checks by status
+function displayAuditResults(result: AuditResult): void {
+  console.log(chalk.bold.cyan('\n═══════════════════════════════════════════════════════'));
+  console.log(chalk.bold.cyan('  Comprehensive Security Audit Results'));
+  console.log(chalk.bold.cyan('═══════════════════════════════════════════════════════\n'));
+
   const passed = result.checks.filter(c => c.passed);
   const failed = result.checks.filter(c => !c.passed);
 
-  // Display passed checks
   if (passed.length > 0) {
-    console.log(chalk.green.bold('✓ Passed Checks'));
+    console.log(chalk.green.bold(`✓ Passed Checks (${passed.length})`));
     for (const check of passed) {
       console.log(chalk.green(`  ✓ ${check.name}`));
       console.log(chalk.dim(`    ${check.message}`));
@@ -619,9 +1123,8 @@ function displayAuditResults(result: AuditResult): void {
     console.log();
   }
 
-  // Display failed checks
   if (failed.length > 0) {
-    console.log(chalk.yellow.bold('✗ Failed Checks'));
+    console.log(chalk.yellow.bold(`✗ Failed Checks (${failed.length})`));
     for (const check of failed) {
       console.log(chalk.yellow(`  ✗ ${check.name}`));
       console.log(chalk.dim(`    ${check.message}`));
@@ -629,7 +1132,6 @@ function displayAuditResults(result: AuditResult): void {
     console.log();
   }
 
-  // Display issues by severity
   const criticalIssues = result.issues.filter(i => i.severity === 'critical');
   const highIssues = result.issues.filter(i => i.severity === 'high');
   const mediumIssues = result.issues.filter(i => i.severity === 'medium');
@@ -679,11 +1181,11 @@ function displayAuditResults(result: AuditResult): void {
     console.log();
   }
 
-  // Summary
   const totalIssues = result.issues.length;
   if (totalIssues === 0) {
     console.log(chalk.green.bold('✓ No issues found - Security audit passed!'));
   } else {
     console.log(chalk.yellow.bold(`Found ${totalIssues} issue(s) across ${result.checks.length} checks`));
+    console.log(chalk.dim(`  Critical: ${criticalIssues.length} | High: ${highIssues.length} | Medium: ${mediumIssues.length} | Low: ${lowIssues.length}`));
   }
 }

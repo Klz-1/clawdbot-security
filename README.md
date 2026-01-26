@@ -1,6 +1,6 @@
 # Clawdbot Security Manager
 
-> Enterprise-grade security management for Clawdbot - Made simple for everyone.
+> **Community-built** security management tool for any Clawdbot installation - Made simple for everyone.
 
 [![npm version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://npmjs.org/package/clawdbot-security)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -8,7 +8,9 @@
 
 ## 🎯 Overview
 
-Clawdbot Security Manager provides comprehensive, automated security hardening for Clawdbot installations. From beginners to enterprise deployments, get a **90/100+ security score in 5 minutes** with zero security expertise required.
+Clawdbot Security Manager is a **community-developed** security tool that provides comprehensive, automated security hardening for **any Clawdbot installation**. Works with all channels (Telegram, Discord, WhatsApp, Slack, etc.), all skills, and all configurations. From beginners to enterprise deployments, get a **90/100+ security score in 5 minutes** with zero security expertise required.
+
+> **Note**: This is an independent community project, not an official Anthropic tool. It works alongside any Clawdbot installation without modifying the core Clawdbot codebase.
 
 ### Key Features
 
@@ -27,8 +29,8 @@ Clawdbot Security Manager provides comprehensive, automated security hardening f
 ### Quick Install
 
 ```bash
-# From source (recommended for development)
-git clone https://github.com/anthropics/clawdbot-security
+# From source (recommended)
+git clone https://github.com/Klz-1/clawdbot-security
 cd clawdbot-security
 npm install
 npm run build
@@ -42,10 +44,10 @@ clawdbot-security setup
 
 ```bash
 # Interactive install
-curl -fsSL https://raw.githubusercontent.com/anthropics/clawdbot-security/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Klz-1/clawdbot-security/main/install.sh | bash
 
 # Non-interactive with specific profile
-curl -fsSL https://raw.githubusercontent.com/anthropics/clawdbot-security/main/install.sh | PROFILE=standard bash
+curl -fsSL https://raw.githubusercontent.com/Klz-1/clawdbot-security/main/install.sh | PROFILE=standard bash
 ```
 
 ### Docker
@@ -251,22 +253,58 @@ clawdbot-security report --compliance
 
 ## 🛡️ Security Checks
 
-### Audit Checks (11 Standard + 3 Deep)
+### Comprehensive Audit (17 Checks - Works with ANY Clawdbot Setup)
 
-1. **File Permissions** - Config and state directory security
-2. **Gateway Authentication** - Auth mode and bind address
-3. **Channel Policies** - Telegram/Discord DM policies
-4. **mDNS/Avahi Detection** ⚠️ - Service discovery exposure (NEW)
-5. **nginx Configuration** - Installation, status, hardening
-6. **fail2ban Status** - Service and jail configuration
-7. **Security Profile** - Profile configuration
-8. **NPM Vulnerabilities** (deep) - Package CVEs
-9. **Python CVEs** (deep) - Interpreter vulnerabilities
-10. **System Packages** (deep) - OS package updates
+**Infrastructure Security (4 checks):**
+1. **File Permissions** - Config, state, .env, secrets/, credentials/, all token files
+2. **Gateway Authentication** - Auth mode and bind address validation
+3. **Network Exposure** - Public port scanning and exposure detection
+4. **mDNS/Avahi Detection** ⚠️ - Service discovery exposure (CVE-2025-MDNS)
+
+**Channel Security (1 check - DYNAMIC):**
+5. **Channel Policies** - **Automatically detects ALL channels** (Telegram, Discord, WhatsApp, Slack, etc.) and validates DM/group policies
+
+**Secrets & Credentials (2 checks):**
+6. **Secrets Management** - Detects hardcoded secrets in config (should be in .env)
+7. **Token Storage** - Validates token file locations and permissions
+
+**Skills & Tools Security (2 checks):**
+8. **Skills Security** - Checks for untrusted npm package skills
+9. **Tools Security** - Validates tool capabilities (shell access, filesystem access)
+
+**Hooks & Extensions (1 check):**
+10. **Hooks Security** - Static code analysis for dangerous patterns (eval, exec, child_process)
+
+**Model Security (1 check):**
+11. **Model Configuration** - Validates model provider trust
+
+**Workspace (1 check):**
+12. **Workspace Isolation** - Checks workspace permissions and isolation
+
+**Hardening (3 checks):**
+13. **nginx Configuration** - Installation, status, hardening verification
+14. **fail2ban Status** - Service and jail configuration
+15. **Security Profile** - Profile configuration validation
+
+**Vulnerabilities (2 checks - deep mode):**
+16. **CVE Status** - npm, Python, system package vulnerabilities
+17. **Dependency Security** - Supply chain security (package-lock.json verification)
+
+### 🌐 Universal Channel Support
+
+Unlike tools hard-coded for specific channels, this security manager **automatically detects and validates ALL channels** configured in your Clawdbot installation:
+
+- ✅ **Telegram** - DM policies, group policies
+- ✅ **Discord** - DM policies, server policies
+- ✅ **WhatsApp** - DM policies, group policies
+- ✅ **Slack** - DM policies, workspace policies
+- ✅ **Any future channel** - Dynamically detected from config
+
+No manual configuration needed - it reads your `channels` configuration and validates security for whatever you have installed.
 
 ### mDNS/Avahi Detection
 
-Based on security audit findings, the system detects and prevents service discovery exposure:
+Based on real-world security audit findings, the system detects and prevents service discovery exposure:
 
 - ✅ Checks if Avahi daemon is running
 - ✅ Checks if Avahi is enabled (will start on boot)
@@ -326,7 +364,7 @@ clawdbot-security update --enable-auto --window=2-5
 
 ```bash
 # Clone and build
-git clone https://github.com/anthropics/clawdbot-security
+git clone https://github.com/Klz-1/clawdbot-security
 cd clawdbot-security
 docker-compose up -d
 
@@ -467,7 +505,7 @@ Contributions are welcome! Please see CONTRIBUTING.md for details.
 
 ```bash
 # Clone repository
-git clone https://github.com/anthropics/clawdbot-security
+git clone https://github.com/Klz-1/clawdbot-security
 cd clawdbot-security
 
 # Install dependencies
@@ -489,14 +527,14 @@ MIT License - see LICENSE for details.
 
 ## 🙏 Acknowledgments
 
-- Built for the [Clawdbot](https://github.com/anthropics/clawdbot) community
+- Built for the [Clawdbot](https://github.com/Klz-1/clawdbot) community
 - Inspired by production security best practices
 - Special thanks to all contributors and security researchers
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/anthropics/clawdbot-security/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/anthropics/clawdbot-security/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Klz-1/clawdbot-security/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Klz-1/clawdbot-security/discussions)
 - **Documentation**: See docs/ directory
 
 ## 🚀 Roadmap

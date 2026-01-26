@@ -25,7 +25,7 @@ const program = new Command();
 program
   .name('clawdbot-security')
   .description('Comprehensive security management for Clawdbot installations')
-  .version('0.1.0')
+  .version('0.5.0')
   .addHelpText('after', `
 ${chalk.bold('Examples:')}
   $ clawdbot-security status              # Show security overview
