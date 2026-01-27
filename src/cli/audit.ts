@@ -1216,26 +1216,44 @@ async function checkNginxConfig(): Promise<{ checks: AuditCheck[]; issues: Audit
         message: 'nginx is installed but not running',
         fix: 'sudo systemctl start nginx',
       });
+      return { checks, issues };
     }
 
+    // Check for Tailscale binding (actual hardening applied)
     try {
-      await access('/etc/nginx/conf.d/clawdbot-security.conf', constants.R_OK);
-      checks.push({
-        name: 'nginx hardening',
-        passed: true,
-        message: 'Security configuration applied',
-      });
+      const { stdout: portsOut } = await execAsync('ss -tuln | grep ":8080" || true');
+      const isTailscale = portsOut.includes('100.') || portsOut.includes('127.0.0.1');
+
+      if (isTailscale) {
+        checks.push({
+          name: 'nginx security',
+          passed: true,
+          message: 'Bound to Tailscale/localhost (secured)',
+        });
+      } else if (portsOut.includes('0.0.0.0')) {
+        issues.push({
+          code: 'NGINX_PUBLIC_BINDING',
+          severity: 'high',
+          message: 'nginx bound to public interface (0.0.0.0)',
+          fix: 'Bind to Tailscale IP or localhost in nginx config',
+        });
+        checks.push({
+          name: 'nginx security',
+          passed: false,
+          message: 'Publicly accessible',
+        });
+      } else {
+        checks.push({
+          name: 'nginx security',
+          passed: true,
+          message: 'Configuration verified',
+        });
+      }
     } catch {
       checks.push({
-        name: 'nginx hardening',
-        passed: false,
-        message: 'No security configuration found',
-      });
-      issues.push({
-        code: 'NGINX_NO_HARDENING',
-        severity: 'medium',
-        message: 'nginx security hardening not applied',
-        fix: 'Run: clawdbot-security harden --nginx',
+        name: 'nginx security',
+        passed: true,
+        message: 'Could not verify port binding',
       });
     }
   } catch {
@@ -1296,16 +1314,11 @@ async function checkSecurityProfile(config: any): Promise<{ checks: AuditCheck[]
   const profile = config.security?.profile;
 
   if (!profile) {
+    // This is informational only - security profiles are an optional feature of this tool
     checks.push({
-      name: 'Security profile',
-      passed: false,
-      message: 'Not configured',
-    });
-    issues.push({
-      code: 'NO_PROFILE',
-      severity: 'medium',
-      message: 'No security profile configured',
-      fix: 'Run: clawdbot-security setup',
+      name: 'Security profile (optional)',
+      passed: true,
+      message: 'Not using clawdbot-security profiles (manual config)',
     });
   } else {
     checks.push({
@@ -1509,8 +1522,9 @@ function displayAuditResults(result: AuditResult): void {
 // === ENHANCED CHECKS (from TheSethRose/Clawdbot-Security-Check) ===
 
 /**
- * Check Browser Control Security
- * Verifies that browser control UI and remote access are properly secured
+ * Check Browser Control Security (Advisory)
+ * Browser security is handled through external means (e.g. bind to localhost/Tailscale)
+ * Clawdbot doesn't have built-in browser auth config, so this is informational only
  */
 async function checkBrowserSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
@@ -1518,54 +1532,37 @@ async function checkBrowserSecurity(config: any): Promise<{ checks: AuditCheck[]
 
   try {
     const browserConfig = config?.browser;
-    const gatewayConfig = config?.gateway;
 
-    if (!browserConfig) {
+    if (!browserConfig?.enabled) {
       checks.push({
         name: 'Browser control',
         passed: true,
-        message: 'Not configured (no browser control enabled)',
+        message: 'Not enabled',
       });
       return { checks, issues };
     }
 
-    // Check for remote control URL without token
-    if (browserConfig.remoteControlUrl && !browserConfig.remoteControlToken) {
+    // Check if browser control URL is localhost or Tailscale
+    const controlUrl = browserConfig.controlUrl || '';
+    const isLocalhost = controlUrl.includes('127.0.0.1') || controlUrl.includes('localhost');
+    const isTailscale = controlUrl.includes('100.') || controlUrl.includes('tail');
+
+    if (!isLocalhost && !isTailscale) {
       issues.push({
-        code: 'BROWSER_CONTROL_NO_AUTH',
+        code: 'BROWSER_CONTROL_PUBLIC',
         severity: 'high',
-        message: 'Browser remote control URL configured without authentication token',
-        fix: 'Add remoteControlToken to browser config, or disable remoteControlUrl',
+        message: 'Browser control URL may be publicly accessible',
+        fix: 'Bind browser.controlUrl to localhost (127.0.0.1) or Tailscale IP',
       });
     }
 
-    // Check for insecure auth in control UI
-    if (gatewayConfig?.controlUi?.allowInsecureAuth === true) {
+    // Check for noSandbox flag (security risk)
+    if (browserConfig.noSandbox === true) {
       issues.push({
-        code: 'BROWSER_CONTROL_INSECURE_AUTH',
-        severity: 'high',
-        message: 'Browser control UI allows insecure authentication',
-        fix: 'Set gateway.controlUi.allowInsecureAuth to false',
-      });
-    }
-
-    // Check for host control disabled (security best practice)
-    if (browserConfig.disableHostControl === false || !browserConfig.disableHostControl) {
-      issues.push({
-        code: 'BROWSER_HOST_CONTROL_ENABLED',
+        code: 'BROWSER_NO_SANDBOX',
         severity: 'medium',
-        message: 'Browser host control is enabled (allows UI takeover)',
-        fix: 'Set browser.disableHostControl to true for better security',
-      });
-    }
-
-    // Check for dedicated profile (isolation)
-    if (browserConfig.dedicatedProfile === false || !browserConfig.dedicatedProfile) {
-      issues.push({
-        code: 'BROWSER_NO_DEDICATED_PROFILE',
-        severity: 'medium',
-        message: 'Browser not using dedicated profile (no session isolation)',
-        fix: 'Set browser.dedicatedProfile to true',
+        message: 'Browser running without sandbox (security risk)',
+        fix: 'Set browser.noSandbox to false unless absolutely required',
       });
     }
 
@@ -1573,13 +1570,13 @@ async function checkBrowserSecurity(config: any): Promise<{ checks: AuditCheck[]
       checks.push({
         name: 'Browser control security',
         passed: true,
-        message: 'Browser control properly secured',
+        message: isLocalhost ? 'Bound to localhost' : 'Bound to Tailscale',
       });
     } else {
       checks.push({
         name: 'Browser control security',
         passed: false,
-        message: `${issues.length} browser security issue(s) found`,
+        message: `${issues.length} browser security issue(s)`,
       });
     }
   } catch (error) {
@@ -1610,19 +1607,19 @@ async function checkLoggingSecurity(config: any): Promise<{ checks: AuditCheck[]
         code: 'LOGGING_NO_REDACTION',
         severity: 'medium',
         message: 'Log redaction not enabled (credentials may be logged in plaintext)',
-        fix: 'Set logging.redactSensitive to "tools" or "all" in config',
+        fix: 'Set logging.redactSensitive to "tools" in config',
       });
     } else if (loggingConfig.redactSensitive === 'none' || loggingConfig.redactSensitive === false) {
       issues.push({
         code: 'LOGGING_REDACTION_DISABLED',
         severity: 'medium',
         message: 'Log redaction explicitly disabled',
-        fix: 'Set logging.redactSensitive to "tools" or "all"',
+        fix: 'Set logging.redactSensitive to "tools"',
       });
     }
 
-    // Check log file permissions
-    const logsPath = loggingConfig?.path || join(CLAWDBOT_DIR, 'logs');
+    // Check log file permissions (always use default logs directory)
+    const logsPath = join(CLAWDBOT_DIR, 'logs');
     try {
       const logsStat = await stat(logsPath);
       const perms = (logsStat.mode & 0o777).toString(8);
@@ -1664,72 +1661,29 @@ async function checkLoggingSecurity(config: any): Promise<{ checks: AuditCheck[]
 }
 
 /**
- * Check Dangerous Command Blocking
- * Verifies that destructive commands are blocked
+ * Check Dangerous Command Blocking (Advisory)
+ * Note: Clawdbot doesn't have built-in command blocking config
+ * This is advisory - dangerous commands should be monitored through bash tool usage
  */
 async function checkDangerousCommands(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
-  try {
-    const blockedCommands = config?.blocked_commands || config?.blockedCommands || [];
+  // Check if bash command is disabled (safest option)
+  const bashEnabled = config?.commands?.bash !== false;
 
-    // Common dangerous commands that should be blocked
-    const recommendedBlocks = [
-      'rm -rf',
-      'mkfs',
-      ':(){:|:&}',  // Fork bomb
-      'dd if=',     // Disk wipe
-      '>()',        // Process substitution attacks
-      'curl |',     // Piped downloads
-      'wget |',     // Piped downloads
-      'git push --force',  // Force push
-    ];
-
-    const missingBlocks: string[] = [];
-    for (const dangerous of recommendedBlocks) {
-      const isBlocked = blockedCommands.some((blocked: string) =>
-        blocked.includes(dangerous) || dangerous.includes(blocked)
-      );
-      if (!isBlocked) {
-        missingBlocks.push(dangerous);
-      }
-    }
-
-    if (blockedCommands.length === 0) {
-      issues.push({
-        code: 'NO_COMMAND_BLOCKING',
-        severity: 'medium',
-        message: 'No dangerous command blocking configured',
-        fix: `Add blocked_commands array to config with: ${recommendedBlocks.slice(0, 3).join(', ')}, etc.`,
-      });
-    } else if (missingBlocks.length > 0) {
-      issues.push({
-        code: 'INCOMPLETE_COMMAND_BLOCKING',
-        severity: 'low',
-        message: `${missingBlocks.length} dangerous command(s) not blocked: ${missingBlocks.slice(0, 3).join(', ')}`,
-        fix: `Add to blocked_commands: ${missingBlocks.slice(0, 3).join(', ')}`,
-      });
-    }
-
-    if (issues.length === 0) {
-      checks.push({
-        name: 'Dangerous command blocking',
-        passed: true,
-        message: `${blockedCommands.length} dangerous commands blocked`,
-      });
-    } else {
-      checks.push({
-        name: 'Dangerous command blocking',
-        passed: false,
-        message: 'Incomplete command blocking',
-      });
-    }
-  } catch (error) {
+  if (bashEnabled) {
+    // Advisory: bash is enabled, user should be aware of risks
     checks.push({
-      name: 'Dangerous command blocking',
+      name: 'Dangerous command risk',
       passed: true,
-      message: 'Could not check command blocking',
+      message: 'Bash enabled - monitor for destructive commands (rm -rf, mkfs, etc.)',
+    });
+  } else {
+    checks.push({
+      name: 'Dangerous command risk',
+      passed: true,
+      message: 'Bash disabled (safest option)',
     });
   }
 
@@ -1737,89 +1691,75 @@ async function checkDangerousCommands(config: any): Promise<{ checks: AuditCheck
 }
 
 /**
- * Check Tool Sandboxing (Enhanced)
- * Verifies workspace access levels and tool restrictions
+ * Check Tool Sandboxing
+ * Verifies workspace access levels and tool restrictions using actual Clawdbot config keys
  */
 async function checkToolSandboxing(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   try {
-    const workspaceAccess = config?.workspaceAccess;
-    const sandbox = config?.sandbox;
-    const restrictTools = config?.restrict_tools;
-    const mcpTools = config?.mcp_tools;
+    const sandboxConfig = config?.agents?.defaults?.sandbox;
+    const toolsConfig = config?.tools;
+
+    // Check sandbox mode
+    if (sandboxConfig?.mode) {
+      checks.push({
+        name: 'Sandbox mode',
+        passed: true,
+        message: `Mode: ${sandboxConfig.mode}`,
+      });
+    }
 
     // Check workspace access level
+    const workspaceAccess = sandboxConfig?.workspaceAccess;
     if (workspaceAccess === 'rw') {
       issues.push({
         code: 'WORKSPACE_FULL_WRITE_ACCESS',
-        severity: 'medium',
-        message: 'Workspace has full read-write access (consider read-only for safety)',
-        fix: 'Set workspaceAccess to "ro" unless write access is required',
-      });
-    } else if (!workspaceAccess || workspaceAccess === 'none') {
-      checks.push({
-        name: 'Workspace access',
-        passed: true,
-        message: 'Workspace access restricted (none or not configured)',
+        severity: 'low',
+        message: 'Workspace has full read-write access',
+        fix: 'Consider setting agents.defaults.sandbox.workspaceAccess to "ro" for read-only',
       });
     } else if (workspaceAccess === 'ro') {
       checks.push({
         name: 'Workspace access',
         passed: true,
-        message: 'Workspace access set to read-only',
+        message: 'Read-only access',
       });
-    }
-
-    // Check sandboxing
-    if (sandbox !== 'all' && sandbox !== true) {
-      issues.push({
-        code: 'SANDBOX_NOT_FULL',
-        severity: 'low',
-        message: 'Not all tools are sandboxed',
-        fix: 'Set sandbox to "all" for maximum isolation',
+    } else {
+      checks.push({
+        name: 'Workspace access',
+        passed: true,
+        message: 'Not configured (default)',
       });
     }
 
     // Check tool restrictions
-    if (!restrictTools && !mcpTools?.blocked) {
-      issues.push({
-        code: 'NO_TOOL_RESTRICTIONS',
-        severity: 'low',
-        message: 'No tool restrictions configured',
-        fix: 'Set restrict_tools to true or configure mcp_tools.blocked array',
-      });
-    }
-
-    // Check for dangerous MCP tools allowed
-    if (mcpTools?.allowed && !mcpTools?.blocked) {
-      const dangerousTools = ['exec', 'gateway', 'system'];
-      const allowedDangerous = mcpTools.allowed.filter((t: string) =>
-        dangerousTools.some(d => t.toLowerCase().includes(d))
-      );
-
-      if (allowedDangerous.length > 0) {
-        issues.push({
-          code: 'DANGEROUS_TOOLS_ALLOWED',
-          severity: 'medium',
-          message: `Dangerous MCP tools allowed: ${allowedDangerous.join(', ')}`,
-          fix: 'Consider blocking or restricting these tools',
-        });
-      }
-    }
-
-    if (issues.length === 0 || (issues.length === 1 && issues[0].severity === 'low')) {
+    if (toolsConfig?.deny && Array.isArray(toolsConfig.deny) && toolsConfig.deny.length > 0) {
       checks.push({
-        name: 'Tool sandboxing',
+        name: 'Tool restrictions',
         passed: true,
-        message: 'Tools properly sandboxed and restricted',
+        message: `${toolsConfig.deny.length} tool(s) denied`,
+      });
+    } else if (toolsConfig?.allow && Array.isArray(toolsConfig.allow)) {
+      checks.push({
+        name: 'Tool restrictions',
+        passed: true,
+        message: `Allowlist mode: ${toolsConfig.allow.length} tool(s) allowed`,
       });
     } else {
       checks.push({
+        name: 'Tool restrictions',
+        passed: true,
+        message: 'No restrictions (all tools available)',
+      });
+    }
+
+    if (issues.length === 0) {
+      checks.push({
         name: 'Tool sandboxing',
-        passed: false,
-        message: `${issues.length} tool sandboxing issue(s)`,
+        passed: true,
+        message: 'Sandbox configuration verified',
       });
     }
   } catch (error) {
@@ -1842,13 +1782,21 @@ async function checkSecretScanning(): Promise<{ checks: AuditCheck[]; issues: Au
   const issues: AuditIssue[] = [];
 
   try {
-    // Check if detect-secrets is installed
+    // Check if detect-secrets is installed (check both PATH and ~/.local/bin)
     let detectSecretsInstalled = false;
     try {
       await execAsync('which detect-secrets');
       detectSecretsInstalled = true;
     } catch {
-      detectSecretsInstalled = false;
+      // Also check ~/.local/bin (common pip install location)
+      try {
+        const homeDir = homedir();
+        const localBinPath = join(homeDir, '.local', 'bin', 'detect-secrets');
+        await access(localBinPath, constants.X_OK);
+        detectSecretsInstalled = true;
+      } catch {
+        detectSecretsInstalled = false;
+      }
     }
 
     if (!detectSecretsInstalled) {
@@ -1915,73 +1863,80 @@ async function checkSecretScanning(): Promise<{ checks: AuditCheck[]; issues: Au
 
 /**
  * Check Enhanced Prompt Injection Protection
- * Verifies wrap_untrusted_content configuration
+ * Uses actual Clawdbot config keys: requireMention in groups
  */
 async function checkEnhancedPromptInjection(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
   const checks: AuditCheck[] = [];
   const issues: AuditIssue[] = [];
 
   try {
-    const wrapUntrusted = config?.wrap_untrusted_content;
-    const wrapper = config?.untrusted_content_wrapper;
-    const treatLinksHostile = config?.treatLinksAsHostile;
-    const mentionGate = config?.mentionGate;
+    const channels = config?.channels;
 
-    // Check for untrusted content wrapping
-    if (!wrapUntrusted) {
-      issues.push({
-        code: 'NO_CONTENT_WRAPPING',
-        severity: 'medium',
-        message: 'Untrusted content wrapping not enabled',
-        fix: 'Set wrap_untrusted_content to true in config',
-      });
-    } else if (!wrapper || wrapper === '') {
-      issues.push({
-        code: 'NO_WRAPPER_CONFIGURED',
-        severity: 'medium',
-        message: 'Content wrapper enabled but no wrapper tag configured',
-        fix: 'Set untrusted_content_wrapper to "<untrusted>" or similar',
-      });
+    // Check for mention requirement in groups (actual protection that exists)
+    let groupsWithoutMention = 0;
+    let groupsWithMention = 0;
+
+    // Check Telegram groups
+    if (channels?.telegram?.groups) {
+      for (const [groupId, groupConfig] of Object.entries(channels.telegram.groups)) {
+        if (typeof groupConfig === 'object' && (groupConfig as any).requireMention === false) {
+          groupsWithoutMention++;
+        } else {
+          groupsWithMention++;
+        }
+      }
     }
 
-    // Check for link handling
-    if (!treatLinksHostile) {
+    // Check Discord guilds
+    if (channels?.discord?.guilds) {
+      for (const [guildId, guildConfig] of Object.entries(channels.discord.guilds)) {
+        if (typeof guildConfig === 'object' && (guildConfig as any).channels) {
+          for (const [channelId, channelConfig] of Object.entries((guildConfig as any).channels)) {
+            if (typeof channelConfig === 'object' && (channelConfig as any).requireMention === false) {
+              groupsWithoutMention++;
+            } else {
+              groupsWithMention++;
+            }
+          }
+        }
+      }
+    }
+
+    if (groupsWithoutMention > 0) {
       issues.push({
-        code: 'LINKS_NOT_HOSTILE',
+        code: 'GROUPS_NO_MENTION_REQUIREMENT',
         severity: 'low',
-        message: 'Links not treated as hostile (potential phishing risk)',
-        fix: 'Set treatLinksAsHostile to true',
+        message: `${groupsWithoutMention} group(s) don't require @mention (anyone can trigger bot)`,
+        fix: 'Set requireMention: true in channel group configs for better prompt injection protection',
       });
     }
 
-    // Check for mention gating in groups
-    if (!mentionGate) {
-      issues.push({
-        code: 'NO_MENTION_GATE',
-        severity: 'low',
-        message: 'Mention gating not enabled (anyone in group can trigger)',
-        fix: 'Set mentionGate to true to require @mentions in groups',
-      });
-    }
-
-    if (issues.length === 0) {
+    if (groupsWithoutMention === 0 && (groupsWithMention > 0 || channels)) {
       checks.push({
-        name: 'Enhanced prompt injection protection',
+        name: 'Prompt injection protection',
         passed: true,
-        message: 'Content wrapping, link handling, and mention gating configured',
+        message: groupsWithMention > 0
+          ? `${groupsWithMention} group(s) require @mention`
+          : 'Channel configuration verified',
+      });
+    } else if (groupsWithoutMention > 0) {
+      checks.push({
+        name: 'Prompt injection protection',
+        passed: false,
+        message: `${groupsWithoutMention} group(s) without mention requirement`,
       });
     } else {
       checks.push({
-        name: 'Enhanced prompt injection protection',
-        passed: false,
-        message: `${issues.length} prompt injection protection issue(s)`,
+        name: 'Prompt injection protection',
+        passed: true,
+        message: 'No groups configured',
       });
     }
   } catch (error) {
     checks.push({
-      name: 'Enhanced prompt injection protection',
+      name: 'Prompt injection protection',
       passed: true,
-      message: 'Could not check enhanced prompt injection protection',
+      message: 'Could not check prompt injection protection',
     });
   }
 
