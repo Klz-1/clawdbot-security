@@ -207,18 +207,57 @@ async function runComprehensiveAudit(deep: boolean = false): Promise<AuditResult
   checks.push(...profileResult.checks);
   issues.push(...profileResult.issues);
 
+  // === ENHANCED SECURITY CHECKS ===
+  console.log(chalk.bold.cyan('\nEnhanced Security'));
+
+  // 16. Browser Control Security
+  console.log(chalk.dim('  • Checking browser control security...'));
+  const browserResult = await checkBrowserSecurity(config);
+  checks.push(...browserResult.checks);
+  issues.push(...browserResult.issues);
+
+  // 17. Logging & Redaction Security
+  console.log(chalk.dim('  • Checking logging security...'));
+  const loggingResult = await checkLoggingSecurity(config);
+  checks.push(...loggingResult.checks);
+  issues.push(...loggingResult.issues);
+
+  // 18. Dangerous Command Blocking
+  console.log(chalk.dim('  • Checking dangerous command blocking...'));
+  const commandsResult = await checkDangerousCommands(config);
+  checks.push(...commandsResult.checks);
+  issues.push(...commandsResult.issues);
+
+  // 19. Tool Sandboxing (Enhanced)
+  console.log(chalk.dim('  • Checking tool sandboxing...'));
+  const sandboxResult = await checkToolSandboxing(config);
+  checks.push(...sandboxResult.checks);
+  issues.push(...sandboxResult.issues);
+
+  // 20. Secret Scanning Integration
+  console.log(chalk.dim('  • Checking secret scanning...'));
+  const secretScanResult = await checkSecretScanning();
+  checks.push(...secretScanResult.checks);
+  issues.push(...secretScanResult.issues);
+
+  // 21. Enhanced Prompt Injection Protection
+  console.log(chalk.dim('  • Checking enhanced prompt injection protection...'));
+  const enhancedPromptResult = await checkEnhancedPromptInjection(config);
+  checks.push(...enhancedPromptResult.checks);
+  issues.push(...enhancedPromptResult.issues);
+
   // === VULNERABILITIES & UPDATES (DEEP MODE) ===
 
   if (deep) {
     console.log(chalk.bold.cyan('\nVulnerabilities & Supply Chain'));
 
-    // 16. CVE Status
+    // 22. CVE Status
     console.log(chalk.dim('  • Checking CVE status (deep scan)...'));
     const cveResult = await checkCVEStatus();
     checks.push(...cveResult.checks);
     issues.push(...cveResult.issues);
 
-    // 17. Dependency Security
+    // 23. Dependency Security
     console.log(chalk.dim('  • Checking dependency security...'));
     const depsResult = await checkDependencySecurity();
     checks.push(...depsResult.checks);
@@ -1465,4 +1504,486 @@ function displayAuditResults(result: AuditResult): void {
     console.log(chalk.yellow.bold(`Found ${totalIssues} issue(s) across ${result.checks.length} checks`));
     console.log(chalk.dim(`  Critical: ${criticalIssues.length} | High: ${highIssues.length} | Medium: ${mediumIssues.length} | Low: ${lowIssues.length}`));
   }
+}
+
+// === ENHANCED CHECKS (from TheSethRose/Clawdbot-Security-Check) ===
+
+/**
+ * Check Browser Control Security
+ * Verifies that browser control UI and remote access are properly secured
+ */
+async function checkBrowserSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const browserConfig = config?.browser;
+    const gatewayConfig = config?.gateway;
+
+    if (!browserConfig) {
+      checks.push({
+        name: 'Browser control',
+        passed: true,
+        message: 'Not configured (no browser control enabled)',
+      });
+      return { checks, issues };
+    }
+
+    // Check for remote control URL without token
+    if (browserConfig.remoteControlUrl && !browserConfig.remoteControlToken) {
+      issues.push({
+        code: 'BROWSER_CONTROL_NO_AUTH',
+        severity: 'high',
+        message: 'Browser remote control URL configured without authentication token',
+        fix: 'Add remoteControlToken to browser config, or disable remoteControlUrl',
+      });
+    }
+
+    // Check for insecure auth in control UI
+    if (gatewayConfig?.controlUi?.allowInsecureAuth === true) {
+      issues.push({
+        code: 'BROWSER_CONTROL_INSECURE_AUTH',
+        severity: 'high',
+        message: 'Browser control UI allows insecure authentication',
+        fix: 'Set gateway.controlUi.allowInsecureAuth to false',
+      });
+    }
+
+    // Check for host control disabled (security best practice)
+    if (browserConfig.disableHostControl === false || !browserConfig.disableHostControl) {
+      issues.push({
+        code: 'BROWSER_HOST_CONTROL_ENABLED',
+        severity: 'medium',
+        message: 'Browser host control is enabled (allows UI takeover)',
+        fix: 'Set browser.disableHostControl to true for better security',
+      });
+    }
+
+    // Check for dedicated profile (isolation)
+    if (browserConfig.dedicatedProfile === false || !browserConfig.dedicatedProfile) {
+      issues.push({
+        code: 'BROWSER_NO_DEDICATED_PROFILE',
+        severity: 'medium',
+        message: 'Browser not using dedicated profile (no session isolation)',
+        fix: 'Set browser.dedicatedProfile to true',
+      });
+    }
+
+    if (issues.length === 0) {
+      checks.push({
+        name: 'Browser control security',
+        passed: true,
+        message: 'Browser control properly secured',
+      });
+    } else {
+      checks.push({
+        name: 'Browser control security',
+        passed: false,
+        message: `${issues.length} browser security issue(s) found`,
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Browser control security',
+      passed: true,
+      message: 'Could not check browser security',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check Logging and Redaction Security
+ * Verifies that sensitive data is properly redacted from logs
+ */
+async function checkLoggingSecurity(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const loggingConfig = config?.logging;
+
+    // Check if redaction is enabled
+    if (!loggingConfig?.redactSensitive) {
+      issues.push({
+        code: 'LOGGING_NO_REDACTION',
+        severity: 'medium',
+        message: 'Log redaction not enabled (credentials may be logged in plaintext)',
+        fix: 'Set logging.redactSensitive to "tools" or "all" in config',
+      });
+    } else if (loggingConfig.redactSensitive === 'none' || loggingConfig.redactSensitive === false) {
+      issues.push({
+        code: 'LOGGING_REDACTION_DISABLED',
+        severity: 'medium',
+        message: 'Log redaction explicitly disabled',
+        fix: 'Set logging.redactSensitive to "tools" or "all"',
+      });
+    }
+
+    // Check log file permissions
+    const logsPath = loggingConfig?.path || join(CLAWDBOT_DIR, 'logs');
+    try {
+      const logsStat = await stat(logsPath);
+      const perms = (logsStat.mode & 0o777).toString(8);
+
+      if (perms !== '700' && perms !== '750') {
+        issues.push({
+          code: 'LOGS_LOOSE_PERMISSIONS',
+          severity: 'medium',
+          message: `Logs directory has loose permissions (${perms})`,
+          fix: `chmod 700 ${logsPath}`,
+        });
+      }
+    } catch {
+      // Logs directory doesn't exist - not necessarily an issue
+    }
+
+    if (issues.length === 0) {
+      checks.push({
+        name: 'Logging security',
+        passed: true,
+        message: 'Logging configured securely with redaction',
+      });
+    } else {
+      checks.push({
+        name: 'Logging security',
+        passed: false,
+        message: `${issues.length} logging security issue(s)`,
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Logging security',
+      passed: true,
+      message: 'Could not check logging configuration',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check Dangerous Command Blocking
+ * Verifies that destructive commands are blocked
+ */
+async function checkDangerousCommands(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const blockedCommands = config?.blocked_commands || config?.blockedCommands || [];
+
+    // Common dangerous commands that should be blocked
+    const recommendedBlocks = [
+      'rm -rf',
+      'mkfs',
+      ':(){:|:&}',  // Fork bomb
+      'dd if=',     // Disk wipe
+      '>()',        // Process substitution attacks
+      'curl |',     // Piped downloads
+      'wget |',     // Piped downloads
+      'git push --force',  // Force push
+    ];
+
+    const missingBlocks: string[] = [];
+    for (const dangerous of recommendedBlocks) {
+      const isBlocked = blockedCommands.some((blocked: string) =>
+        blocked.includes(dangerous) || dangerous.includes(blocked)
+      );
+      if (!isBlocked) {
+        missingBlocks.push(dangerous);
+      }
+    }
+
+    if (blockedCommands.length === 0) {
+      issues.push({
+        code: 'NO_COMMAND_BLOCKING',
+        severity: 'medium',
+        message: 'No dangerous command blocking configured',
+        fix: `Add blocked_commands array to config with: ${recommendedBlocks.slice(0, 3).join(', ')}, etc.`,
+      });
+    } else if (missingBlocks.length > 0) {
+      issues.push({
+        code: 'INCOMPLETE_COMMAND_BLOCKING',
+        severity: 'low',
+        message: `${missingBlocks.length} dangerous command(s) not blocked: ${missingBlocks.slice(0, 3).join(', ')}`,
+        fix: `Add to blocked_commands: ${missingBlocks.slice(0, 3).join(', ')}`,
+      });
+    }
+
+    if (issues.length === 0) {
+      checks.push({
+        name: 'Dangerous command blocking',
+        passed: true,
+        message: `${blockedCommands.length} dangerous commands blocked`,
+      });
+    } else {
+      checks.push({
+        name: 'Dangerous command blocking',
+        passed: false,
+        message: 'Incomplete command blocking',
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Dangerous command blocking',
+      passed: true,
+      message: 'Could not check command blocking',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check Tool Sandboxing (Enhanced)
+ * Verifies workspace access levels and tool restrictions
+ */
+async function checkToolSandboxing(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const workspaceAccess = config?.workspaceAccess;
+    const sandbox = config?.sandbox;
+    const restrictTools = config?.restrict_tools;
+    const mcpTools = config?.mcp_tools;
+
+    // Check workspace access level
+    if (workspaceAccess === 'rw') {
+      issues.push({
+        code: 'WORKSPACE_FULL_WRITE_ACCESS',
+        severity: 'medium',
+        message: 'Workspace has full read-write access (consider read-only for safety)',
+        fix: 'Set workspaceAccess to "ro" unless write access is required',
+      });
+    } else if (!workspaceAccess || workspaceAccess === 'none') {
+      checks.push({
+        name: 'Workspace access',
+        passed: true,
+        message: 'Workspace access restricted (none or not configured)',
+      });
+    } else if (workspaceAccess === 'ro') {
+      checks.push({
+        name: 'Workspace access',
+        passed: true,
+        message: 'Workspace access set to read-only',
+      });
+    }
+
+    // Check sandboxing
+    if (sandbox !== 'all' && sandbox !== true) {
+      issues.push({
+        code: 'SANDBOX_NOT_FULL',
+        severity: 'low',
+        message: 'Not all tools are sandboxed',
+        fix: 'Set sandbox to "all" for maximum isolation',
+      });
+    }
+
+    // Check tool restrictions
+    if (!restrictTools && !mcpTools?.blocked) {
+      issues.push({
+        code: 'NO_TOOL_RESTRICTIONS',
+        severity: 'low',
+        message: 'No tool restrictions configured',
+        fix: 'Set restrict_tools to true or configure mcp_tools.blocked array',
+      });
+    }
+
+    // Check for dangerous MCP tools allowed
+    if (mcpTools?.allowed && !mcpTools?.blocked) {
+      const dangerousTools = ['exec', 'gateway', 'system'];
+      const allowedDangerous = mcpTools.allowed.filter((t: string) =>
+        dangerousTools.some(d => t.toLowerCase().includes(d))
+      );
+
+      if (allowedDangerous.length > 0) {
+        issues.push({
+          code: 'DANGEROUS_TOOLS_ALLOWED',
+          severity: 'medium',
+          message: `Dangerous MCP tools allowed: ${allowedDangerous.join(', ')}`,
+          fix: 'Consider blocking or restricting these tools',
+        });
+      }
+    }
+
+    if (issues.length === 0 || (issues.length === 1 && issues[0].severity === 'low')) {
+      checks.push({
+        name: 'Tool sandboxing',
+        passed: true,
+        message: 'Tools properly sandboxed and restricted',
+      });
+    } else {
+      checks.push({
+        name: 'Tool sandboxing',
+        passed: false,
+        message: `${issues.length} tool sandboxing issue(s)`,
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Tool sandboxing',
+      passed: true,
+      message: 'Could not check tool sandboxing',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check Secret Scanning Integration
+ * Verifies detect-secrets baseline exists and is current
+ */
+async function checkSecretScanning(): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    // Check if detect-secrets is installed
+    let detectSecretsInstalled = false;
+    try {
+      await execAsync('which detect-secrets');
+      detectSecretsInstalled = true;
+    } catch {
+      detectSecretsInstalled = false;
+    }
+
+    if (!detectSecretsInstalled) {
+      issues.push({
+        code: 'NO_SECRET_SCANNING',
+        severity: 'low',
+        message: 'detect-secrets not installed (no automatic secret scanning)',
+        fix: 'Install: pip install detect-secrets',
+      });
+      checks.push({
+        name: 'Secret scanning',
+        passed: false,
+        message: 'detect-secrets not installed',
+      });
+      return { checks, issues };
+    }
+
+    // Check for .secrets.baseline
+    const baselinePath = join(CLAWDBOT_DIR, '.secrets.baseline');
+    try {
+      await access(baselinePath, constants.F_OK);
+
+      // Check if baseline is recent (< 30 days old)
+      const baselineStat = await stat(baselinePath);
+      const ageInDays = (Date.now() - baselineStat.mtimeMs) / (1000 * 60 * 60 * 24);
+
+      if (ageInDays > 30) {
+        issues.push({
+          code: 'STALE_SECRETS_BASELINE',
+          severity: 'low',
+          message: `Secret scanning baseline is ${Math.floor(ageInDays)} days old`,
+          fix: 'Update: detect-secrets scan --baseline .secrets.baseline --update',
+        });
+      } else {
+        checks.push({
+          name: 'Secret scanning',
+          passed: true,
+          message: `Baseline exists (updated ${Math.floor(ageInDays)} days ago)`,
+        });
+      }
+    } catch {
+      issues.push({
+        code: 'NO_SECRETS_BASELINE',
+        severity: 'low',
+        message: 'No .secrets.baseline found',
+        fix: `Create: cd ${CLAWDBOT_DIR} && detect-secrets scan --baseline .secrets.baseline`,
+      });
+      checks.push({
+        name: 'Secret scanning',
+        passed: false,
+        message: 'No secrets baseline configured',
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Secret scanning',
+      passed: true,
+      message: 'Could not check secret scanning',
+    });
+  }
+
+  return { checks, issues };
+}
+
+/**
+ * Check Enhanced Prompt Injection Protection
+ * Verifies wrap_untrusted_content configuration
+ */
+async function checkEnhancedPromptInjection(config: any): Promise<{ checks: AuditCheck[]; issues: AuditIssue[] }> {
+  const checks: AuditCheck[] = [];
+  const issues: AuditIssue[] = [];
+
+  try {
+    const wrapUntrusted = config?.wrap_untrusted_content;
+    const wrapper = config?.untrusted_content_wrapper;
+    const treatLinksHostile = config?.treatLinksAsHostile;
+    const mentionGate = config?.mentionGate;
+
+    // Check for untrusted content wrapping
+    if (!wrapUntrusted) {
+      issues.push({
+        code: 'NO_CONTENT_WRAPPING',
+        severity: 'medium',
+        message: 'Untrusted content wrapping not enabled',
+        fix: 'Set wrap_untrusted_content to true in config',
+      });
+    } else if (!wrapper || wrapper === '') {
+      issues.push({
+        code: 'NO_WRAPPER_CONFIGURED',
+        severity: 'medium',
+        message: 'Content wrapper enabled but no wrapper tag configured',
+        fix: 'Set untrusted_content_wrapper to "<untrusted>" or similar',
+      });
+    }
+
+    // Check for link handling
+    if (!treatLinksHostile) {
+      issues.push({
+        code: 'LINKS_NOT_HOSTILE',
+        severity: 'low',
+        message: 'Links not treated as hostile (potential phishing risk)',
+        fix: 'Set treatLinksAsHostile to true',
+      });
+    }
+
+    // Check for mention gating in groups
+    if (!mentionGate) {
+      issues.push({
+        code: 'NO_MENTION_GATE',
+        severity: 'low',
+        message: 'Mention gating not enabled (anyone in group can trigger)',
+        fix: 'Set mentionGate to true to require @mentions in groups',
+      });
+    }
+
+    if (issues.length === 0) {
+      checks.push({
+        name: 'Enhanced prompt injection protection',
+        passed: true,
+        message: 'Content wrapping, link handling, and mention gating configured',
+      });
+    } else {
+      checks.push({
+        name: 'Enhanced prompt injection protection',
+        passed: false,
+        message: `${issues.length} prompt injection protection issue(s)`,
+      });
+    }
+  } catch (error) {
+    checks.push({
+      name: 'Enhanced prompt injection protection',
+      passed: true,
+      message: 'Could not check enhanced prompt injection protection',
+    });
+  }
+
+  return { checks, issues };
 }
