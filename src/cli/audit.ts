@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { access, stat, readdir, readFile } from 'fs/promises';
-import { constants } from 'fs';
+import { constants, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { loadClawdbotConfig } from '../core/config.js';
@@ -23,7 +23,9 @@ interface ServiceStatus {
   enabled: boolean;
 }
 
-const CLAWDBOT_DIR = join(homedir(), '.clawdbot');
+// Support both openclaw and clawdbot config directories
+const OPENCLAW_DIR = join(homedir(), '.openclaw');
+const CLAWDBOT_DIR = existsSync(OPENCLAW_DIR) ? OPENCLAW_DIR : join(homedir(), '.clawdbot');
 
 export function registerAuditCommand(program: Command): void {
   program
@@ -280,7 +282,7 @@ async function checkFilePermissionsComprehensive(): Promise<{ checks: AuditCheck
   const issues: AuditIssue[] = [];
 
   const filesToCheck = [
-    { path: `${CLAWDBOT_DIR}/clawdbot.json`, name: 'Config file', expectedMax: 0o600 },
+    { path: existsSync(`${CLAWDBOT_DIR}/openclaw.json`) ? `${CLAWDBOT_DIR}/openclaw.json` : `${CLAWDBOT_DIR}/clawdbot.json`, name: 'Config file', expectedMax: 0o600 },
     { path: `${CLAWDBOT_DIR}/.env`, name: 'Environment file', expectedMax: 0o600 },
     { path: `${CLAWDBOT_DIR}/secrets`, name: 'Secrets directory', expectedMax: 0o700 },
     { path: `${CLAWDBOT_DIR}/credentials`, name: 'Credentials directory', expectedMax: 0o700 },
@@ -953,12 +955,14 @@ async function checkPromptInjectionProtection(): Promise<{ checks: AuditCheck[];
     // Check if Clawdbot has external content sanitization module
     // This was introduced in PR #1827 to prevent prompt injection via email hooks
     const npmRoot = (await execAsync('npm root -g')).stdout.trim();
+    // Check both openclaw and clawdbot paths
+    const openclawPath = join(npmRoot, 'openclaw');
     const clawdbotPath = join(npmRoot, 'clawdbot');
 
     // Check for the security module that handles external content
-    const securityModuleExists = await access(join(clawdbotPath, 'dist', 'security'))
+    const securityModuleExists = await access(join(openclawPath, 'dist', 'security'))
       .then(() => true)
-      .catch(() => false);
+      .catch(() => access(join(clawdbotPath, 'dist', 'security')).then(() => true).catch(() => false));
 
     if (!securityModuleExists) {
       checks.push({
@@ -1042,8 +1046,14 @@ async function checkPromptInjectionProtection(): Promise<{ checks: AuditCheck[];
       });
     }
 
-    // Additional check: Verify Clawdbot version
-    const version = (await execAsync('clawdbot --version')).stdout.trim();
+    // Additional check: Verify Clawdbot/OpenClaw version
+    let versionStr: string;
+    try {
+      versionStr = (await execAsync('openclaw --version')).stdout.trim();
+    } catch {
+      versionStr = (await execAsync('clawdbot --version')).stdout.trim();
+    }
+    const version = versionStr;
     const [year, month, day] = version.split(/[.-]/).map(Number);
 
     // PR #1827 was merged around 2026.1.24
